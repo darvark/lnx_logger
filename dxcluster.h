@@ -1,18 +1,17 @@
 #ifndef DXCLUSTER_H
 #define DXCLUSTER_H
 
-#include <stdbool.h>
-#include <stdint.h>
+#include "globals.h"
+
 #include <pthread.h>
 
 #define MAX_SPOTS 500
 
-typedef struct
-{
-    char time[16];
-    char freq[16];
-    char call[32];
-    char comment[128];
+typedef struct {
+  char time[16];
+  char freq[16];
+  char call[32];
+  char comment[128];
 
 } Spot;
 

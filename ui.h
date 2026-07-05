@@ -1,12 +1,11 @@
 #ifndef UI_H
 #define UI_H
 
-#include "qso.h"
 #include "dxcluster.h"
-#include "stats.h"
 #include "globals.h"
+#include "qso.h"
+#include "stats.h"
 
-#include <string.h>
 #include <ncurses.h>
 
 extern WINDOW *w_log;
@@ -32,10 +31,7 @@ void draw_cluster_fullscreen(int scroll);
 void draw_stats(void);
 void draw_function_bar(void);
 
-void draw_all(
-    const char *input,
-    const char *status,
-    const char *dxcc,
-    const char *info);
+void draw_all(const char *input, const char *status, const char *dxcc,
+              const char *info);
 
 #endif

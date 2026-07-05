@@ -3,19 +3,16 @@
 
 #include "qso.h"
 
-#include <string.h>
+typedef struct {
+  int total_qso;
+  int total_dxcc;
 
-typedef struct
-{
-    int total_qso;
-    int total_dxcc;
-
-    int cw;
-    int ssb;
-    int ft8;
-    int ft4;
-    int rtty;
-    int psk31;
+  int cw;
+  int ssb;
+  int ft8;
+  int ft4;
+  int rtty;
+  int psk31;
 
 } Statistics;
 

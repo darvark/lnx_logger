@@ -2,8 +2,6 @@
 
 Logger is a terminal-based amateur radio logging application for entering QSOs, looking up DXCC information, and monitoring DXCluster spots.
 
-<img width="1408" height="683" alt="obraz" src="https://github.com/user-attachments/assets/73f0c233-01ec-4088-8eb7-ca527bcd89e2" />
-
 ## What it does
 
 - Records QSOs from the terminal UI

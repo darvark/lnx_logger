@@ -1,16 +1,17 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-typedef struct
-{
-    double lat;
-    double lon;
+#include "globals.h"
 
-    char locator[16];
+typedef struct {
+  double lat;
+  double lon;
 
-    char dxc_host[128];
-    int dxc_port;
-    char dxc_call[32];
+  char locator[16];
+
+  char dxc_host[128];
+  int dxc_port;
+  char dxc_call[32];
 
 } Config;
 
