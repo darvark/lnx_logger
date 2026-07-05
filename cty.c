@@ -1,0 +1,207 @@
+#include "cty.h"
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
+
+#define MAX_CTY 50000
+
+static CtyEntry cty_db[MAX_CTY];
+static int cty_count = 0;
+
+/* ------------------------------------------------ */
+
+static void trim(char *s)
+{
+    if (!s)
+        return;
+
+    char *p = s;
+    while (*p && isspace((unsigned char)*p))
+        p++;
+
+    if (p != s)
+        memmove(s, p, strlen(p) + 1);
+
+    for (int i = (int)strlen(s) - 1; i >= 0; i--)
+    {
+        if (isspace((unsigned char)s[i]))
+            s[i] = 0;
+        else
+            break;
+    }
+}
+
+/* ------------------------------------------------ */
+
+static int match_prefix(const char *call, const char *prefix)
+{
+    return strncasecmp(call, prefix, strlen(prefix)) == 0;
+}
+
+/* ------------------------------------------------ */
+
+static void add_country_entry(const char *country, const char *prefix, int cq, int itu,
+                              double lat, double lon)
+{
+    if (!country || !prefix || !prefix[0])
+        return;
+
+    if (cty_count >= MAX_CTY)
+        return;
+
+    CtyEntry *e = &cty_db[cty_count++];
+    memset(e, 0, sizeof(*e));
+
+    strncpy(e->prefix, prefix, sizeof(e->prefix) - 1);
+    strncpy(e->country, country, sizeof(e->country) - 1);
+    e->cq_zone = cq;
+    e->itu_zone = itu;
+    e->lat = lat;
+    e->lon = lon;
+}
+
+/* ------------------------------------------------ */
+
+int cty_load(const char *filename)
+{
+    const char *candidates[] = {
+        filename,
+        "wl_cty.dat",
+        "build/wl_cty.dat",
+        "./wl_cty.dat",
+        "../wl_cty.dat"
+    };
+
+    FILE *f = NULL;
+    const char *used_path = NULL;
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++)
+    {
+        if (!candidates[i] || !candidates[i][0])
+            continue;
+
+        f = fopen(candidates[i], "r");
+        if (f)
+        {
+            used_path = candidates[i];
+            break;
+        }
+    }
+
+    if (!f)
+    {
+        fprintf(stderr, "Cannot open CTY database\n");
+        return -1;
+    }
+
+    cty_count = 0;
+
+    char line[512];
+    char country[64] = {0};
+    int cq_zone = 0;
+    int itu_zone = 0;
+    double lat = 0.0;
+    double lon = 0.0;
+
+    while (fgets(line, sizeof(line), f))
+    {
+        char *trimmed = line;
+        while (*trimmed && isspace((unsigned char)*trimmed))
+            trimmed++;
+
+        if (*trimmed == 0 || *trimmed == '#')
+            continue;
+
+        char *save = NULL;
+        char *tokens[10];
+        int count = 0;
+
+        for (char *tok = strtok_r(trimmed, ":", &save);
+             tok && count < 10;
+             tok = strtok_r(NULL, ":", &save))
+        {
+            trim(tok);
+            if (tok[0])
+                tokens[count++] = tok;
+        }
+
+        if (count >= 3 &&
+            isdigit((unsigned char)tokens[1][0]) &&
+            isdigit((unsigned char)tokens[2][0]))
+        {
+            snprintf(country, sizeof(country), "%s", tokens[0]);
+            cq_zone = atoi(tokens[1]);
+            itu_zone = atoi(tokens[2]);
+
+            if (count >= 6)
+            {
+                lat = strtod(tokens[4], NULL);
+                lon = strtod(tokens[5], NULL);
+            }
+            else
+            {
+                lat = 0.0;
+                lon = 0.0;
+            }
+
+            if (count >= 8)
+            {
+                add_country_entry(country, tokens[count - 1], cq_zone, itu_zone, lat, lon);
+            }
+
+            continue;
+        }
+
+        if (!country[0])
+            continue;
+
+        char *prefix_save = NULL;
+        for (char *tok = strtok_r(trimmed, ",; \t\r\n", &prefix_save);
+             tok;
+             tok = strtok_r(NULL, ",; \t\r\n", &prefix_save))
+        {
+            trim(tok);
+            if (tok[0])
+                add_country_entry(country, tok, cq_zone, itu_zone, lat, lon);
+        }
+    }
+
+    fclose(f);
+    return cty_count;
+}
+
+/* ------------------------------------------------ */
+
+const CtyEntry *cty_lookup(const char *callsign)
+{
+    if (!callsign)
+        return NULL;
+
+    static char tmp[32];
+    strncpy(tmp, callsign, sizeof(tmp));
+    tmp[sizeof(tmp) - 1] = 0;
+
+    for (int i = 0; tmp[i]; i++)
+        tmp[i] = toupper(tmp[i]);
+
+    const CtyEntry *best = NULL;
+    size_t best_len = 0;
+
+    for (int i = 0; i < cty_count; i++)
+    {
+        size_t len = strlen(cty_db[i].prefix);
+
+        if (len < 1)
+            continue;
+
+        if (len > best_len &&
+            match_prefix(tmp, cty_db[i].prefix))
+        {
+            best = &cty_db[i];
+            best_len = len;
+        }
+    }
+
+    return best;
+}
