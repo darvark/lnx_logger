@@ -13,5 +13,6 @@
 extern int last_cq;
 extern int last_itu;
 extern int cty_update_in_progress;
+extern int call_suggestion_available;
 
 #endif

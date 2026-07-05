@@ -16,6 +16,193 @@ static char info_text[128] = "";
 int last_cq = 0;
 int last_itu = 0;
 int cty_update_in_progress = 0;
+int call_suggestion_available = 0;
+
+#define MAX_CALL_HISTORY 20000
+
+static char call_history[MAX_CALL_HISTORY][32];
+static int call_history_count = 0;
+
+static char suggested_call[32] = {0};
+static bool has_call_suggestion = false;
+
+static int extract_callsign_token(const char *input, char *out, size_t out_size) {
+  if (!input || !out || out_size < 2)
+    return 0;
+
+  out[0] = 0;
+
+  size_t len = strlen(input);
+  size_t start = 0;
+
+  while (start < len && isspace((unsigned char)input[start]))
+    start++;
+
+  if (start >= len)
+    return 0;
+
+  size_t end = start;
+  while (end < len && !isspace((unsigned char)input[end]) && input[end] != ';')
+    end++;
+
+  size_t token_len = end - start;
+  if (token_len < 2 || token_len >= out_size)
+    return 0;
+
+  for (size_t i = 0; i < token_len; i++)
+    out[i] = (char)toupper((unsigned char)input[start + i]);
+
+  out[token_len] = 0;
+
+  return 1;
+}
+
+static void call_history_add_memory(const char *call) {
+  if (!call || !call[0])
+    return;
+
+  if (call_history_count < MAX_CALL_HISTORY) {
+    snprintf(call_history[call_history_count], sizeof(call_history[0]), "%s", call);
+    call_history_count++;
+    return;
+  }
+
+  memmove(call_history, call_history + 1,
+          sizeof(call_history[0]) * (MAX_CALL_HISTORY - 1));
+  snprintf(call_history[MAX_CALL_HISTORY - 1], sizeof(call_history[0]), "%s",
+           call);
+}
+
+static void call_history_append_file(const char *call) {
+  FILE *f = fopen("call_history.txt", "a");
+  if (!f)
+    return;
+
+  fprintf(f, "%s\n", call);
+  fclose(f);
+}
+
+static void call_history_record_from_input(const char *input) {
+  char call[32];
+
+  if (!extract_callsign_token(input, call, sizeof(call)))
+    return;
+
+  if (strcmp(call, "EXPORT") == 0 || strcmp(call, "INVALID") == 0 ||
+      strcmp(call, "QUIT") == 0)
+    return;
+
+  call_history_add_memory(call);
+  call_history_append_file(call);
+}
+
+static void call_history_load_file(const char *path) {
+  FILE *f = fopen(path, "r");
+  if (!f)
+    return;
+
+  char line[128];
+
+  while (fgets(line, sizeof(line), f)) {
+    size_t n = strlen(line);
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
+      line[n - 1] = 0;
+      n--;
+    }
+
+    for (size_t i = 0; line[i]; i++)
+      line[i] = (char)toupper((unsigned char)line[i]);
+
+    if (line[0])
+      call_history_add_memory(line);
+  }
+
+  fclose(f);
+}
+
+static void clear_callsign_suggestion(void) {
+  has_call_suggestion = false;
+  call_suggestion_available = 0;
+  suggested_call[0] = 0;
+}
+
+static void refresh_callsign_suggestion(const char *input) {
+  clear_callsign_suggestion();
+
+  if (!input || !input[0])
+    return;
+
+  size_t in_len = strlen(input);
+  size_t start = 0;
+
+  while (start < in_len && isspace((unsigned char)input[start]))
+    start++;
+
+  if (start >= in_len)
+    return;
+
+  size_t end = start;
+  while (end < in_len && !isspace((unsigned char)input[end]) &&
+         input[end] != ';') {
+    end++;
+  }
+
+  if (end >= in_len)
+    ;
+  else if (isspace((unsigned char)input[end]))
+    return;
+
+  size_t token_len = end - start;
+  if (token_len < 1 || token_len >= sizeof(suggested_call))
+    return;
+
+  char prefix[32] = {0};
+  if (!extract_callsign_token(input, prefix, sizeof(prefix)))
+    return;
+
+  for (int i = call_history_count - 1; i >= 0; i--) {
+    if (strncmp(call_history[i], prefix, token_len) != 0)
+      continue;
+
+    if (strcmp(call_history[i], prefix) == 0)
+      continue;
+
+    snprintf(suggested_call, sizeof(suggested_call), "%s", call_history[i]);
+    has_call_suggestion = true;
+    call_suggestion_available = 1;
+    return;
+  }
+}
+
+static int apply_callsign_suggestion(char *input, int *len) {
+  if (!input || !len || !has_call_suggestion)
+    return 0;
+
+  size_t in_len = strlen(input);
+  size_t start = 0;
+
+  while (start < in_len && isspace((unsigned char)input[start]))
+    start++;
+
+  size_t end = start;
+  while (end < in_len && !isspace((unsigned char)input[end]) &&
+         input[end] != ';') {
+    end++;
+  }
+
+  size_t sugg_len = strlen(suggested_call);
+  size_t suffix_len = in_len - end;
+
+  if (start + sugg_len + suffix_len >= sizeof(input_buffer))
+    return 0;
+
+  memmove(input + start + sugg_len, input + end, suffix_len + 1);
+  memcpy(input + start, suggested_call, sugg_len);
+
+  *len = (int)strlen(input);
+
+  return 1;
+}
 
 static int export_with_adif_filename(const char *adif_file) {
   const char *default_csv = "log.csv";
@@ -167,6 +354,7 @@ int main(void) {
   cty_load("wl_cty.dat");
 
   qso_init();
+  call_history_load_file("call_history.txt");
 
   ui_init();
 
@@ -176,12 +364,19 @@ int main(void) {
   bool cluster_view = false;
   int cluster_scroll = 0;
   bool export_prompt_mode = false;
+  char display_info[128];
 
   while (1) {
+    if (has_call_suggestion && !export_prompt_mode)
+      snprintf(display_info, sizeof(display_info), "Suggest: %s [Tab]",
+               suggested_call);
+    else
+      snprintf(display_info, sizeof(display_info), "%s", info_text);
+
     if (cluster_view)
       draw_cluster_fullscreen(cluster_scroll);
     else
-      draw_all(input_buffer, status_text, dxcc_text, info_text);
+      draw_all(input_buffer, status_text, dxcc_text, display_info);
 
     int ch = wgetch(w_input);
     if (ch == ERR)
@@ -200,6 +395,7 @@ int main(void) {
 
     if (ch == KEY_F(2)) {
       export_prompt_mode = true;
+      clear_callsign_suggestion();
       input_buffer[0] = 0;
       len = 0;
       snprintf(status_text, sizeof(status_text),
@@ -284,6 +480,14 @@ int main(void) {
       continue;
     }
 
+    if (!export_prompt_mode && ch == '\t') {
+      if (apply_callsign_suggestion(input_buffer, &len)) {
+        update_dxcc_from_input(input_buffer);
+        refresh_callsign_suggestion(input_buffer);
+      }
+      continue;
+    }
+
     if (ch == KEY_BACKSPACE || ch == 127) {
       if (len > 0) {
         input_buffer[--len] = 0;
@@ -291,6 +495,9 @@ int main(void) {
 
       if (!export_prompt_mode)
         update_dxcc_from_input(input_buffer);
+
+      if (!export_prompt_mode)
+        refresh_callsign_suggestion(input_buffer);
       continue;
     }
 
@@ -302,6 +509,7 @@ int main(void) {
           export_prompt_mode = false;
           input_buffer[0] = 0;
           len = 0;
+          clear_callsign_suggestion();
         } else {
           snprintf(status_text, sizeof(status_text),
                    "Please enter ADIF filename (Esc to cancel)");
@@ -318,12 +526,14 @@ int main(void) {
         } else if (strcmp(input_buffer, "invalid") == 0) {
           process_command(input_buffer);
         } else {
+          call_history_record_from_input(input_buffer);
           process_qso(input_buffer);
         }
       }
 
       input_buffer[0] = 0;
       len = 0;
+      clear_callsign_suggestion();
     }
 
     if (isprint(ch)) {
@@ -335,6 +545,9 @@ int main(void) {
 
       if (!export_prompt_mode)
         update_dxcc_from_input(input_buffer);
+
+      if (!export_prompt_mode)
+        refresh_callsign_suggestion(input_buffer);
     }
   }
 

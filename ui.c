@@ -117,6 +117,7 @@ void ui_init(void) {
     init_pair(5, COLOR_MAGENTA, -1);
     init_pair(6, COLOR_RED, -1);
     init_pair(7, COLOR_YELLOW, -1);
+    init_pair(8, COLOR_WHITE, COLOR_BLUE);
   }
 
   create_windows();
@@ -180,15 +181,17 @@ void draw_log(void) {
 /* ------------------------------------------------ */
 
 void draw_input(const char *buf) {
+  int input_pair = call_suggestion_available ? 8 : 3;
+
   werase(w_input);
-  wbkgd(w_input, COLOR_PAIR(3));
+  wbkgd(w_input, COLOR_PAIR(input_pair));
   box(w_input, 0, 0);
 
-  wattron(w_input, A_BOLD);
+  wattron(w_input, COLOR_PAIR(input_pair) | A_BOLD);
 
   mvwprintw(w_input, 1, 2, "CALL FREQ RST > %s", buf);
 
-  wattroff(w_input, A_BOLD);
+  wattroff(w_input, COLOR_PAIR(input_pair) | A_BOLD);
 }
 
 /* ------------------------------------------------ */
