@@ -16,7 +16,8 @@ Logger is a terminal-based amateur radio logging application for entering QSOs, 
 - Local DXCC lookup from a CTY database
 - DXCluster status and spot display
 - Invalid QSO marking for export exclusion
-- CSV/ADIF export support
+- CSV/ADIF export support, including custom ADIF filename
+- One-key CTY database update from the internet
 
 ## Requirements
 
@@ -25,6 +26,7 @@ Logger is a terminal-based amateur radio logging application for entering QSOs, 
 - make
 - ncurses development libraries
 - pthread support
+- curl or wget (for CTY database download)
 
 On Debian/Ubuntu systems, install the required packages with:
 
@@ -81,12 +83,24 @@ DXC_CALL=AAXAAA
 While running the application, you can use these commands in the input line:
 
 - export: write log.csv and log.adi
+- export mylog.adi: write log.csv and custom ADIF file mylog.adi
 - invalid: mark the most recent QSO as invalid so it is skipped by exports
 - quit: exit the program
+
+## Function keys
+
+- F1: help/status hint
+- F2: prompt for ADIF filename, then export CSV and ADIF using the entered ADIF name
+- F3: recalculate statistics
+- F4: toggle DXCluster fullscreen view
+- F5: download the latest wl_cty.dat and reload CTY entries
+- F10: quit
 
 ## Data files
 
 The program expects the DXCC database file named wl_cty.dat in the working directory or in the build directory.
+
+When F5 is used, wl_cty.dat is downloaded and replaced in the current working directory.
 
 ## Notes
 

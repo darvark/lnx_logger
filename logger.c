@@ -17,12 +17,52 @@ int last_cq = 0;
 int last_itu = 0;
 int cty_update_in_progress = 0;
 
-static void process_command(const char *cmd) {
-  if (strcmp(cmd, "export") == 0) {
-    export_csv("log.csv");
-    export_adif("log.adi");
+static int export_with_adif_filename(const char *adif_file) {
+  const char *default_csv = "log.csv";
 
-    snprintf(status_text, sizeof(status_text), "Export complete");
+  if (!adif_file || !adif_file[0])
+    return -1;
+
+  if (export_csv(default_csv) != 0)
+    return -1;
+
+  if (export_adif(adif_file) != 0)
+    return -1;
+
+  snprintf(status_text, sizeof(status_text), "Exported ADIF: %s", adif_file);
+
+  return 0;
+}
+
+static int export_with_optional_adif(const char *cmd) {
+  const char *default_adif = "log.adi";
+  const char *adif_file = default_adif;
+
+  if (cmd) {
+    const char *p = cmd;
+
+    while (*p && isspace((unsigned char)*p))
+      p++;
+
+    if (strncmp(p, "export", 6) != 0)
+      return -1;
+
+    p += 6;
+
+    while (*p && isspace((unsigned char)*p))
+      p++;
+
+    if (*p)
+      adif_file = p;
+  }
+
+  return export_with_adif_filename(adif_file);
+}
+
+static void process_command(const char *cmd) {
+  if (strncmp(cmd, "export", 6) == 0) {
+    if (export_with_optional_adif(cmd) != 0)
+      snprintf(status_text, sizeof(status_text), "Export failed");
 
     return;
   }
@@ -42,7 +82,7 @@ static int is_command(const char *s) {
   if (strcmp(s, "quit") == 0)
     return 1;
 
-  if (strcmp(s, "export") == 0)
+  if (strncmp(s, "export", 6) == 0)
     return 1;
 
   if (strcmp(s, "invalid") == 0)
@@ -135,6 +175,7 @@ int main(void) {
   int len = 0;
   bool cluster_view = false;
   int cluster_scroll = 0;
+  bool export_prompt_mode = false;
 
   while (1) {
     if (cluster_view)
@@ -158,7 +199,19 @@ int main(void) {
       continue;
 
     if (ch == KEY_F(2)) {
-      process_command("export");
+      export_prompt_mode = true;
+      input_buffer[0] = 0;
+      len = 0;
+      snprintf(status_text, sizeof(status_text),
+               "Enter ADIF filename and press Enter (Esc to cancel)");
+      continue;
+    }
+
+    if (export_prompt_mode && ch == 27) {
+      export_prompt_mode = false;
+      input_buffer[0] = 0;
+      len = 0;
+      snprintf(status_text, sizeof(status_text), "Export cancelled");
       continue;
     }
 
@@ -226,7 +279,8 @@ int main(void) {
     }
 
     if (ch == KEY_F(1)) {
-      snprintf(status_text, sizeof(status_text), "CALL FREQ RST [MODE]");
+      snprintf(status_text, sizeof(status_text),
+               "CALL FREQ RST [MODE] | F2 prompts ADIF filename");
       continue;
     }
 
@@ -235,15 +289,30 @@ int main(void) {
         input_buffer[--len] = 0;
       }
 
-      update_dxcc_from_input(input_buffer);
+      if (!export_prompt_mode)
+        update_dxcc_from_input(input_buffer);
       continue;
     }
 
     if (ch == '\n') {
+      if (export_prompt_mode) {
+        if (strlen(input_buffer)) {
+          if (export_with_adif_filename(input_buffer) != 0)
+            snprintf(status_text, sizeof(status_text), "Export failed");
+          export_prompt_mode = false;
+          input_buffer[0] = 0;
+          len = 0;
+        } else {
+          snprintf(status_text, sizeof(status_text),
+                   "Please enter ADIF filename (Esc to cancel)");
+        }
+
+        continue;
+      }
+
       if (strlen(input_buffer)) {
-        if (strcmp(input_buffer, "export") == 0) {
-          export_csv("log.csv");
-          export_adif("log.adi");
+        if (strncmp(input_buffer, "export", 6) == 0) {
+          process_command(input_buffer);
         } else if (strcmp(input_buffer, "quit") == 0) {
           break;
         } else if (strcmp(input_buffer, "invalid") == 0) {
@@ -264,7 +333,8 @@ int main(void) {
         input_buffer[len] = 0;
       }
 
-      update_dxcc_from_input(input_buffer);
+      if (!export_prompt_mode)
+        update_dxcc_from_input(input_buffer);
     }
   }
 
