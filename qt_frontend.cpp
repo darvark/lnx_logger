@@ -62,7 +62,7 @@ public:
     log_table_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     log_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     log_table_->horizontalHeader()->setStretchLastSection(false);
-    log_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    log_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     log_layout->addWidget(log_table_);
     root->addWidget(log_group_);
 
@@ -362,8 +362,8 @@ private:
       "QMainWindow, QWidget { background: #89d4e8; color: #0d2d3b; }"
         "QGroupBox { border: 1px solid #0e6a85; border-radius: 3px; margin-top: 8px;"
       "          background: #95dceb; font-weight: bold; }"
-      "QGroupBox#logGroup::title { subcontrol-origin: margin; subcontrol-position: top center;"
-      "                           padding: 0 6px; color: #f4f8ff; background: #0f5ea4; }"
+      "QGroupBox#logGroup::title { subcontrol-origin: margin; left: 10px;"
+"                           padding: 0 6px; color: #f4f8ff; background: #0f5ea4; }"
       "QGroupBox#clusterGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
       "                               color: #f4f8ff; background: #0f5ea4; }"
       "QHeaderView::section { background: #0f5ea4; color: #ffe66d; padding: 1px 4px;"
@@ -489,10 +489,7 @@ private:
         auto *cell = new QTableWidgetItem(text);
           const int hard_cols[8] = {3, 8, 4, 14, 5, 4, 4, 3};
           cell->setText(clip_to_cols(cell->text(), hard_cols[col]));
-        if (col == 0 || col == 4)
-          cell->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        else if (col == 1 || col == 2)
-          cell->setTextAlignment(Qt::AlignCenter);
+          cell->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
 
         if (q.invalid) {
           cell->setBackground(QColor(250, 224, 110));
@@ -577,7 +574,9 @@ private:
       comment_item->setText(clip_to_cols(comment_item->text(), 80));
 
       time_item->setTextAlignment(Qt::AlignCenter);
-      freq_item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+      freq_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+      call_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+      comment_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
 
       time_item->setForeground(QColor(14, 90, 20));
       freq_item->setForeground(QColor(14, 90, 20));
