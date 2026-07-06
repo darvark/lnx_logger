@@ -1,0 +1,297 @@
+#include "config.h"
+#include "cty.h"
+#include "export.h"
+#include "maidenhead.h"
+#include "qso.h"
+#include "stats.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <math.h>
+#include <stdarg.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+static int g_failures = 0;
+
+static void failf(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  fprintf(stderr, "[FAIL] ");
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+  va_end(ap);
+  g_failures++;
+}
+
+static void expect_true(int condition, const char *message) {
+  if (!condition)
+    failf("%s", message);
+}
+
+static void expect_int_eq(int actual, int expected, const char *message) {
+  if (actual != expected)
+    failf("%s (actual=%d expected=%d)", message, actual, expected);
+}
+
+static void expect_str_eq(const char *actual, const char *expected,
+                          const char *message) {
+  if (!actual || strcmp(actual, expected) != 0)
+    failf("%s (actual='%s' expected='%s')", message, actual ? actual : "(null)",
+          expected ? expected : "(null)");
+}
+
+static void expect_double_close(double actual, double expected, double eps,
+                                const char *message) {
+  if (fabs(actual - expected) > eps)
+    failf("%s (actual=%.8f expected=%.8f eps=%.8f)", message, actual, expected,
+          eps);
+}
+
+static int write_text_file(const char *path, const char *text) {
+  FILE *f = fopen(path, "w");
+  if (!f)
+    return -1;
+
+  fputs(text, f);
+  fclose(f);
+  return 0;
+}
+
+static char *read_whole_file(const char *path) {
+  FILE *f = fopen(path, "r");
+  if (!f)
+    return NULL;
+
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return NULL;
+  }
+
+  long size = ftell(f);
+  if (size < 0) {
+    fclose(f);
+    return NULL;
+  }
+
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return NULL;
+  }
+
+  char *buf = malloc((size_t)size + 1);
+  if (!buf) {
+    fclose(f);
+    return NULL;
+  }
+
+  size_t n = fread(buf, 1, (size_t)size, f);
+  fclose(f);
+
+  buf[n] = 0;
+  return buf;
+}
+
+static int make_temp_dir(char *out, size_t out_size) {
+  if (!out || out_size < 16)
+    return -1;
+
+  snprintf(out, out_size, "/tmp/lnx_logger_reg_XXXXXX");
+  if (!mkdtemp(out))
+    return -1;
+
+  return 0;
+}
+
+static void test_config_loading(const char *tmp_dir) {
+  char conf_path[512];
+
+  snprintf(conf_path, sizeof(conf_path), "%s/logger.conf", tmp_dir);
+
+  const char *conf_text =
+      "# Regression config\n"
+      "LAT = 52.2297\n"
+      "LON=21.0122\n"
+      "LOCATOR = JO92AA\n"
+      "DXC_HOST = dx.example.net\n"
+      "DXC_PORT = 9000\n"
+      "DXC_CALL = SP9XYZ\n";
+
+  expect_int_eq(write_text_file(conf_path, conf_text), 0,
+                "write test logger.conf");
+
+  expect_int_eq(config_load(conf_path), 0, "config_load should succeed");
+  expect_double_close(config.lat, 52.2297, 0.0001, "config LAT parsed");
+  expect_double_close(config.lon, 21.0122, 0.0001, "config LON parsed");
+  expect_str_eq(config.locator, "JO92AA", "config locator parsed");
+  expect_str_eq(config.dxc_host, "dx.example.net", "config host parsed");
+  expect_int_eq(config.dxc_port, 9000, "config port parsed");
+  expect_str_eq(config.dxc_call, "SP9XYZ", "config call parsed");
+
+  expect_int_eq(config_load("/definitely/missing/logger.conf"), -1,
+                "missing config should return -1");
+  expect_str_eq(config.dxc_host, "telnet.reversebeacon.net",
+                "defaults restored when config file is missing");
+  expect_int_eq(config.dxc_port, 7000,
+                "default port restored when config file is missing");
+}
+
+static void test_cty_loading_and_lookup(const char *tmp_dir) {
+  char cty_path[512];
+  snprintf(cty_path, sizeof(cty_path), "%s/wl_cty.dat", tmp_dir);
+
+  const char *cty_text =
+      "Poland:15:28:EU:52.0:21.0:0:SP:\n"
+      "SP,HF;\n"
+      "United States:5:8:NA:38.0:-97.0:0:K:\n"
+      "K;\n"
+      "United States K1:5:8:NA:41.0:-71.0:0:K1:\n"
+      "K1;\n";
+
+  expect_int_eq(write_text_file(cty_path, cty_text), 0, "write test CTY file");
+
+  int loaded = cty_load(cty_path);
+  expect_true(loaded > 0, "cty_load should load at least one entry");
+
+  const CtyEntry *sp = cty_lookup("sp9abc");
+  expect_true(sp != NULL, "SP9ABC should resolve in CTY");
+  if (sp) {
+    expect_str_eq(sp->country, "Poland", "SP9ABC country");
+    expect_int_eq(sp->cq_zone, 15, "SP9ABC CQ zone");
+    expect_int_eq(sp->itu_zone, 28, "SP9ABC ITU zone");
+  }
+
+  const CtyEntry *k1 = cty_lookup("K1ABC");
+  expect_true(k1 != NULL, "K1ABC should resolve in CTY");
+  if (k1) {
+    expect_str_eq(k1->country, "United States K1",
+                  "longest prefix K1 should win over K");
+  }
+
+  const CtyEntry *unknown = cty_lookup("ZZ9ZZZ");
+  expect_true(unknown == NULL, "Unknown prefix should not resolve");
+}
+
+static void test_qso_and_stats_logic(void) {
+  char status[128];
+
+  qso_init();
+
+  int idx1 = qso_add("SP9ABC 14074 599", status, sizeof(status));
+  expect_int_eq(idx1, 0, "first QSO index");
+  expect_str_eq(status, "QSO OK", "first QSO status");
+  expect_int_eq(qso_count, 1, "QSO count after first add");
+
+  expect_str_eq(logbook[0].call, "SP9ABC", "callsign normalized");
+  expect_str_eq(logbook[0].band, "20M", "band detection for 14074");
+  expect_str_eq(logbook[0].mode, "FT8", "mode detection for 14074");
+  expect_str_eq(logbook[0].country, "Poland", "country assigned from CTY");
+
+  int idx2 = qso_add("K1ABC 14150 59", status, sizeof(status));
+  expect_int_eq(idx2, 1, "second QSO index");
+  expect_str_eq(logbook[1].band, "20M", "band detection for 14150");
+  expect_str_eq(logbook[1].mode, "SSB", "mode detection for 14150");
+
+  int bad_format = qso_add("K1ABC 14150", status, sizeof(status));
+  expect_int_eq(bad_format, -1, "bad format should fail");
+  expect_str_eq(status, "Bad format", "bad format status");
+
+  int bad_call = qso_add("ABCDEF 14074 599", status, sizeof(status));
+  expect_int_eq(bad_call, -1, "callsign without digit should fail");
+  expect_str_eq(status, "Invalid callsign", "invalid callsign status");
+
+  qso_mark_invalid(1);
+  expect_true(logbook[1].invalid, "second QSO marked invalid");
+
+  stats_update();
+  expect_int_eq(stats.total_qso, 1, "stats excludes invalid QSO");
+  expect_int_eq(stats.total_dxcc, 1, "stats DXCC excludes invalid QSO");
+  expect_int_eq(stats.ft8, 1, "stats FT8 count");
+  expect_int_eq(stats.ssb, 0, "stats SSB count after invalidation");
+
+  qso_mark_invalid(1);
+  expect_true(!logbook[1].invalid, "invalid toggle restores validity");
+
+  stats_update();
+  expect_int_eq(stats.total_qso, 2, "stats total after unmark invalid");
+  expect_int_eq(stats.total_dxcc, 2, "stats DXCC after unmark invalid");
+  expect_int_eq(stats.ssb, 1, "stats SSB after unmark invalid");
+}
+
+static void test_export_outputs(const char *tmp_dir) {
+  char csv_path[512];
+  char adi_path[512];
+
+  snprintf(csv_path, sizeof(csv_path), "%s/out.csv", tmp_dir);
+  snprintf(adi_path, sizeof(adi_path), "%s/out.adi", tmp_dir);
+
+  expect_int_eq(export_csv(csv_path), 0, "CSV export should succeed");
+  expect_int_eq(export_adif(adi_path), 0, "ADIF export should succeed");
+
+  char *csv = read_whole_file(csv_path);
+  char *adi = read_whole_file(adi_path);
+
+  expect_true(csv != NULL, "CSV file should be readable");
+  expect_true(adi != NULL, "ADIF file should be readable");
+
+  if (csv) {
+    expect_true(strstr(csv, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY") != NULL,
+                "CSV header exists");
+    expect_true(strstr(csv, "SP9ABC") != NULL, "CSV contains first call");
+    expect_true(strstr(csv, "K1ABC") != NULL, "CSV contains second call");
+  }
+
+  if (adi) {
+    expect_true(strstr(adi, "<EOH>") != NULL, "ADIF header terminator exists");
+    expect_true(strstr(adi, "<CALL:6>SP9ABC") != NULL,
+                "ADIF contains first call");
+    expect_true(strstr(adi, "<CALL:5>K1ABC") != NULL,
+                "ADIF contains second call");
+    expect_true(strstr(adi, "<MODE:3>SSB") != NULL,
+                "ADIF contains SSB mode field");
+  }
+
+  free(csv);
+  free(adi);
+}
+
+static void test_maidenhead_conversion(void) {
+  double lat = 0.0;
+  double lon = 0.0;
+
+  expect_int_eq(locator_to_latlon("JO90", &lat, &lon), 0,
+                "locator JO90 should parse");
+  expect_double_close(lat, 50.5, 0.001, "JO90 latitude");
+  expect_double_close(lon, 19.0, 0.001, "JO90 longitude");
+
+  expect_int_eq(locator_to_latlon("JO90aa", &lat, &lon), 0,
+                "locator JO90aa should parse");
+  expect_double_close(lat, 50.020833, 0.001, "JO90aa latitude");
+  expect_double_close(lon, 18.041666, 0.001, "JO90aa longitude");
+
+  expect_int_eq(locator_to_latlon("ZZ99", &lat, &lon), -1,
+                "invalid locator ZZ99 should fail");
+}
+
+int main(void) {
+  char tmp_dir[256];
+  if (make_temp_dir(tmp_dir, sizeof(tmp_dir)) != 0) {
+    fprintf(stderr, "Cannot create temp dir: %s\n", strerror(errno));
+    return 2;
+  }
+
+  test_config_loading(tmp_dir);
+  test_cty_loading_and_lookup(tmp_dir);
+  test_qso_and_stats_logic();
+  test_export_outputs(tmp_dir);
+  test_maidenhead_conversion();
+
+  if (g_failures == 0) {
+    printf("All regression tests passed.\n");
+    return 0;
+  }
+
+  printf("Regression tests failed: %d\n", g_failures);
+  return 1;
+}

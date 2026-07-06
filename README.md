@@ -46,6 +46,47 @@ cmake --build build
 
 The executable will be created in the build directory.
 
+## Regression Tests
+
+The project includes a regression suite in `tests/regression` that validates
+core non-UI behavior:
+
+- configuration parsing and defaults
+- CTY database loading and callsign lookup
+- QSO parsing, band/mode detection, and invalid toggle behavior
+- statistics aggregation
+- CSV and ADIF export content
+- Maidenhead locator conversion
+
+Run the tests with:
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+## Unit Tests
+
+The project also includes unit tests in `tests/unit` to verify exported
+non-UI functions from core modules:
+
+- `config`: `config_load`
+- `cty`: `cty_load`, `cty_lookup`
+- `qso`: `qso_init`, `qso_add`, `qso_mark_invalid`, `detect_band`, `detect_mode`
+- `stats`: `stats_update`
+- `export`: `export_csv`, `export_adif`
+- `maidenhead`: `locator_to_latlon`
+- `dxcluster`: `dxcluster_set_status`
+
+Run all tests (regression + unit):
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
 ## Run
 
 ```bash
