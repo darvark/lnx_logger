@@ -96,7 +96,8 @@ static void call_history_record_from_input(const char *input) {
     return;
 
   if (strcmp(call, "EXPORT") == 0 || strcmp(call, "INVALID") == 0 ||
-      strcmp(call, "QUIT") == 0)
+      strcmp(call, "QUIT") == 0 || strcmp(call, "NEWLOG") == 0 ||
+      strcmp(call, "CLEAR") == 0)
     return;
 
   call_history_add_memory(call);
@@ -119,6 +120,30 @@ static void clear_callsign_suggestion(void) {
 
   for (int i = 0; i < CALL_SUGGESTION_MAX; i++)
     call_suggestion_matches[i][0] = 0;
+}
+
+static void create_new_clean_log(void) {
+  if (db_clear_logbook() != 0) {
+    snprintf(status_text, sizeof(status_text), "New log failed");
+    return;
+  }
+
+  qso_init();
+  memset(call_history, 0, sizeof(call_history));
+  call_history_count = 0;
+  clear_callsign_suggestion();
+
+  input_buffer[0] = 0;
+  input_len = 0;
+  export_prompt_mode = false;
+  dxcc_text[0] = 0;
+  info_text[0] = 0;
+  display_info[0] = 0;
+  last_cq = 0;
+  last_itu = 0;
+
+  stats_update();
+  snprintf(status_text, sizeof(status_text), "New clean log created");
 }
 
 static void refresh_callsign_suggestion(const char *input) {
@@ -195,6 +220,11 @@ static void process_command(const char *cmd) {
     if (export_with_optional_adif(cmd) != 0)
       snprintf(status_text, sizeof(status_text), "Export failed");
 
+    return;
+  }
+
+  if (strcmp(cmd, "newlog") == 0 || strcmp(cmd, "clear") == 0) {
+    create_new_clean_log();
     return;
   }
 
@@ -296,6 +326,17 @@ int app_controller_init(void) {
   input_len = 0;
   memset(call_history, 0, sizeof(call_history));
   call_history_count = 0;
+  snprintf(status_text, sizeof(status_text), "Ready");
+  dxcc_text[0] = 0;
+  info_text[0] = 0;
+  display_info[0] = 0;
+  cluster_view = false;
+  cluster_scroll = 0;
+  export_prompt_mode = false;
+  cty_update_in_progress = 0;
+  last_cq = 0;
+  last_itu = 0;
+  clear_callsign_suggestion();
 
   if (config_load("logger.conf") != 0)
     fprintf(stderr, "Cannot load logger.conf\n");
@@ -312,6 +353,7 @@ int app_controller_init(void) {
 
 void app_controller_shutdown(void) {
   dxcluster_stop();
+  db_shutdown();
 }
 
 void app_controller_get_render_state(AppRenderState *out) {
@@ -391,6 +433,11 @@ AppControllerEvent app_controller_handle_key(int key) {
     snprintf(status_text, sizeof(status_text),
              "Downloading wl_cty.dat... keyboard locked");
     return APP_CTRL_EVENT_REQUEST_CTY_UPDATE;
+  }
+
+  if (key == APP_KEY_F6) {
+    create_new_clean_log();
+    return APP_CTRL_EVENT_NONE;
   }
 
   if (cluster_view) {

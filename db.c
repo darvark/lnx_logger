@@ -35,8 +35,11 @@ static sqlite3 *db = NULL;
 static char db_path[512] = {0};
 static int db_initialized = 0;
 static int db_is_default_path = 1;
+static int db_bootstrap_import_done = 0;
 
 static int table_is_empty(const char *table);
+static int meta_get_int(const char *key, int *value);
+static int meta_set_int(const char *key, int value);
 
 static int exec_sql(const char *sql) {
   char *err = NULL;
@@ -143,8 +146,25 @@ static int ensure_open(void) {
           ");") != SQLITE_OK)
     return -1;
 
-  if (db_is_default_path && table_is_empty("call_history"))
-    import_call_history_file_impl("call_history.txt");
+  if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS app_meta ("
+          "key TEXT PRIMARY KEY,"
+          "value INTEGER NOT NULL"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (db_is_default_path && !db_bootstrap_import_done) {
+    int imported_flag = 0;
+    if (meta_get_int("call_history_bootstrap", &imported_flag) != 0 ||
+        imported_flag == 0) {
+      if (table_is_empty("call_history") &&
+          import_call_history_file_impl("call_history.txt") >= 0) {
+        meta_set_int("call_history_bootstrap", 1);
+      }
+    }
+
+    db_bootstrap_import_done = 1;
+  }
 
   return 0;
 }
@@ -163,6 +183,43 @@ static int table_is_empty(const char *table) {
 
   sqlite3_finalize(stmt);
   return count == 0;
+}
+
+static int meta_get_int(const char *key, int *value) {
+  if (!key || !key[0] || !value)
+    return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt, "SELECT value FROM app_meta WHERE key = ?;") != SQLITE_OK)
+    return -1;
+
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+  int rc = sqlite3_step(stmt);
+  if (rc == SQLITE_ROW) {
+    *value = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return 0;
+  }
+
+  sqlite3_finalize(stmt);
+  return -1;
+}
+
+static int meta_set_int(const char *key, int value) {
+  if (!key || !key[0])
+    return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "INSERT INTO app_meta (key, value) VALUES (?, ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value = excluded.value;") != SQLITE_OK)
+    return -1;
+
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 2, value);
+  int rc = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  return rc == SQLITE_DONE ? 0 : -1;
 }
 
 void db_shutdown(void) {
@@ -351,6 +408,23 @@ int db_import_call_history_file(const char *path) {
     return -1;
 
   return import_call_history_file_impl(path);
+}
+
+int db_clear_logbook(void) {
+  if (db_init() != 0)
+    return -1;
+
+  if (exec_sql("BEGIN;") != SQLITE_OK)
+    return -1;
+
+  int ok = exec_sql("DELETE FROM qso;") == SQLITE_OK &&
+           exec_sql("DELETE FROM call_history;") == SQLITE_OK &&
+           exec_sql("DELETE FROM sqlite_sequence WHERE name IN ('qso','call_history');") == SQLITE_OK;
+
+  if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
+    return -1;
+
+  return ok ? 0 : -1;
 }
 
 static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {

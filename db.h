@@ -13,6 +13,7 @@ int db_update_qso_invalid(long long id, int invalid);
 int db_load_call_history(char history[][32], int max_history, int *out_count);
 int db_append_call_history(const char *call);
 int db_import_call_history_file(const char *path);
+int db_clear_logbook(void);
 
 int db_export_csv(const char *filename);
 int db_export_adif(const char *filename);

@@ -465,7 +465,7 @@ void draw_function_bar(void) {
   } else {
     mvwprintw(
         w_func, 0, 1,
-        "F1 Help  F2 Export  F3 Stats  F4 Cluster  F5 CTY update  F10 Quit");
+        "F1 Help  F2 Export  F3 Stats  F4 Cluster  F5 CTY update  F6 New Log  F10 Quit");
   }
 
   wattroff(w_func, COLOR_PAIR(cty_update_in_progress ? 10 : 4) | A_BOLD);

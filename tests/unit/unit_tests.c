@@ -238,6 +238,7 @@ static void test_qso_helpers(void) {
 
 static void test_qso_add_mark_and_stats(void) {
   char status[128];
+  AppRenderState state;
 
   qso_init();
   expect_int_eq(qso_count, 0, "qso_init resets qso_count");
@@ -284,6 +285,21 @@ static void test_qso_add_mark_and_stats(void) {
   expect_int_eq(stats.total_qso, 2, "stats total after re-enable");
   expect_int_eq(stats.total_dxcc, 2, "stats DXCC after re-enable");
   expect_int_eq(stats.ssb, 1, "stats SSB after re-enable");
+
+  app_controller_handle_key(APP_KEY_F6);
+  app_controller_get_render_state(&state);
+
+  expect_int_eq(qso_count, 0, "F6 clears the logbook");
+  expect_true(state.status != NULL, "F6 status is present");
+  if (state.status)
+    expect_str_eq(state.status, "New clean log created",
+                  "F6 status confirms clean log creation");
+
+  int idx3 = qso_add("SP9ABC 14074 599", status, sizeof(status));
+  expect_int_eq(idx3, 0, "first QSO after clean log reuses index 0");
+
+  int idx4 = qso_add("K1ABC 14150 59", status, sizeof(status));
+  expect_int_eq(idx4, 1, "second QSO after clean log reuses index 1");
 }
 
 static void test_export_csv_adif(const char *tmp_dir) {
@@ -436,6 +452,7 @@ static void test_call_suggestions(void) {
 static void test_app_controller_key_flow(void) {
   AppRenderState state;
 
+  app_controller_init();
   app_controller_get_render_state(&state);
   expect_true(state.status != NULL, "controller render state status is present");
   if (state.status)

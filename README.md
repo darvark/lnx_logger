@@ -24,6 +24,7 @@ The project now also supports an optional Qt frontend that uses the same control
 - CSV/ADIF export support, including custom ADIF filename
 - One-key CTY database update from the internet
 - SQLite-backed logbook and call-history storage with `LOGGER_DB_PATH` override
+- New clean log action to truncate the current SQLite logbook and history
 
 ## Requirements
 
@@ -156,6 +157,7 @@ While running the application, you can use these commands in the input line:
 - export: write log.csv and log.adi
 - export mylog.adi: write log.csv and custom ADIF file mylog.adi
 - invalid: mark the most recent QSO as invalid so it is skipped by exports
+- newlog / clear: create a new clean logbook and clear call-history suggestions
 - quit: exit the program
 
 ## Function keys
@@ -165,6 +167,7 @@ While running the application, you can use these commands in the input line:
 - F3: recalculate statistics
 - F4: toggle DXCluster fullscreen view
 - F5: download the latest wl_cty.dat and reload CTY entries
+- F6: create a new clean logbook and clear call history
 - F10: quit
 
 ## Callsign suggestions

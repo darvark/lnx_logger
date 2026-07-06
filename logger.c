@@ -17,6 +17,8 @@ static int translate_key(int ch) {
     return APP_KEY_F4;
   if (ch == KEY_F(5))
     return APP_KEY_F5;
+  if (ch == KEY_F(6))
+    return APP_KEY_F6;
   if (ch == KEY_F(10))
     return APP_KEY_F10;
   if (ch == KEY_UP)
