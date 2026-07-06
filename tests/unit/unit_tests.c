@@ -1,3 +1,4 @@
+#include "app_controller.h"
 #include "config.h"
 #include "cty.h"
 #include "dxcluster.h"
@@ -432,6 +433,41 @@ static void test_call_suggestions(void) {
                 "no suggestions after first token is completed");
 }
 
+static void test_app_controller_key_flow(void) {
+  AppRenderState state;
+
+  app_controller_get_render_state(&state);
+  expect_true(state.status != NULL, "controller render state status is present");
+  if (state.status)
+    expect_str_eq(state.status, "Ready", "controller starts with Ready status");
+
+  AppControllerEvent ev = app_controller_handle_key(APP_KEY_F1);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "F1 should not request special controller event");
+
+  app_controller_get_render_state(&state);
+  expect_true(state.status != NULL, "controller status after F1 is present");
+  if (state.status)
+    expect_true(strstr(state.status, "CALL FREQ RST") != NULL,
+                "F1 updates status help text");
+
+  ev = app_controller_handle_key(APP_KEY_F4);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "F4 toggle should not request special controller event");
+  app_controller_get_render_state(&state);
+  expect_true(state.cluster_view, "F4 should enable cluster full view");
+
+  ev = app_controller_handle_key(APP_KEY_F4);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "second F4 toggle should not request special event");
+  app_controller_get_render_state(&state);
+  expect_true(!state.cluster_view, "second F4 should return to main view");
+
+  ev = app_controller_handle_key(APP_KEY_F10);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_EXIT,
+                "F10 should request exit event");
+}
+
 int main(void) {
   char tmp_dir[256];
   if (make_temp_dir(tmp_dir, sizeof(tmp_dir)) != 0) {
@@ -449,6 +485,7 @@ int main(void) {
   test_dxcluster_set_status();
   test_dxcluster_start_stop();
   test_call_suggestions();
+  test_app_controller_key_flow();
 
   if (g_failures == 0) {
     printf("All unit tests passed.\n");

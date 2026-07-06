@@ -2,6 +2,8 @@
 
 Logger is a terminal-based amateur radio logging application for entering QSOs, looking up DXCC information, and monitoring DXCluster spots.
 
+The project now also supports an optional Qt frontend that uses the same controller/core logic as the ncurses UI.
+
 ## What it does
 
 - Records QSOs from the terminal UI
@@ -30,6 +32,10 @@ Logger is a terminal-based amateur radio logging application for entering QSOs, 
 - pthread support
 - curl or wget (for CTY database download)
 
+Optional for Qt frontend:
+
+- Qt Widgets development package (Qt 5 or Qt 6)
+
 On Debian/Ubuntu systems, install the required packages with:
 
 ```bash
@@ -46,7 +52,16 @@ cmake -S . -B build
 cmake --build build
 ```
 
-The executable will be created in the build directory.
+Executables are created in the build directory:
+
+- logger (ncurses)
+- logger_qt (Qt, only if Qt Widgets was found during configure)
+
+To disable Qt target generation explicitly:
+
+```bash
+cmake -S . -B build -DLOGGER_BUILD_QT=OFF
+```
 
 ## Regression Tests
 
@@ -73,6 +88,7 @@ ctest --test-dir build --output-on-failure
 The project also includes unit tests in `tests/unit` to verify exported
 non-UI functions from core modules:
 
+- `app_controller`: shared frontend-independent key/state flow used by both ncurses and Qt frontends
 - `config`: `config_load`
 - `cty`: `cty_load`, `cty_lookup`
 - `qso`: `qso_init`, `qso_add`, `qso_mark_invalid`, `detect_band`, `detect_mode`
@@ -80,6 +96,9 @@ non-UI functions from core modules:
 - `export`: `export_csv`, `export_adif`
 - `maidenhead`: `locator_to_latlon`
 - `dxcluster`: `dxcluster_set_status`
+
+UI rendering itself (ncurses painting and Qt widget drawing) is intentionally
+not covered by automated tests and should be verified manually.
 
 Run all tests (regression + unit):
 
@@ -94,6 +113,13 @@ ctest --test-dir build --output-on-failure
 ```bash
 cd build
 ./logger
+```
+
+Qt frontend:
+
+```bash
+cd build
+./logger_qt
 ```
 
 ## Configuration
