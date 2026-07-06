@@ -40,6 +40,9 @@ static int db_bootstrap_import_done = 0;
 static int table_is_empty(const char *table);
 static int meta_get_int(const char *key, int *value);
 static int meta_set_int(const char *key, int value);
+static int meta_get_previous_log_available(int *value);
+static int copy_table(const char *src, const char *dst, const char *columns);
+static int exec_sql_checked(const char *sql);
 
 static int exec_sql(const char *sql) {
   char *err = NULL;
@@ -48,6 +51,10 @@ static int exec_sql(const char *sql) {
     sqlite3_free(err);
   }
   return rc;
+}
+
+static int exec_sql_checked(const char *sql) {
+  return exec_sql(sql) == SQLITE_OK ? 0 : -1;
 }
 
 static int prepare_stmt(sqlite3_stmt **stmt, const char *sql) {
@@ -147,6 +154,30 @@ static int ensure_open(void) {
     return -1;
 
   if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS previous_qso ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "date TEXT NOT NULL,"
+          "utc TEXT NOT NULL,"
+          "call TEXT NOT NULL,"
+          "freq INTEGER NOT NULL,"
+          "band TEXT NOT NULL,"
+          "mode TEXT NOT NULL,"
+          "rst TEXT NOT NULL,"
+          "country TEXT NOT NULL,"
+          "cq_zone INTEGER NOT NULL,"
+          "itu_zone INTEGER NOT NULL,"
+          "invalid INTEGER NOT NULL DEFAULT 0"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS previous_call_history ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "call TEXT NOT NULL"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (exec_sql(
           "CREATE TABLE IF NOT EXISTS app_meta ("
           "key TEXT PRIMARY KEY,"
           "value INTEGER NOT NULL"
@@ -203,6 +234,10 @@ static int meta_get_int(const char *key, int *value) {
 
   sqlite3_finalize(stmt);
   return -1;
+}
+
+static int meta_get_previous_log_available(int *value) {
+  return meta_get_int("previous_log_available", value);
 }
 
 static int meta_set_int(const char *key, int value) {
@@ -418,8 +453,80 @@ int db_clear_logbook(void) {
     return -1;
 
   int ok = exec_sql("DELETE FROM qso;") == SQLITE_OK &&
-           exec_sql("DELETE FROM call_history;") == SQLITE_OK &&
-           exec_sql("DELETE FROM sqlite_sequence WHERE name IN ('qso','call_history');") == SQLITE_OK;
+           exec_sql("DELETE FROM call_history;") == SQLITE_OK;
+
+  if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
+    return -1;
+
+  return ok ? 0 : -1;
+}
+
+static int copy_table(const char *src, const char *dst, const char *columns) {
+  char sql[512];
+
+  if (!src || !dst || !columns)
+    return -1;
+
+  snprintf(sql, sizeof(sql), "DELETE FROM %s;", dst);
+  if (exec_sql_checked(sql) != 0)
+    return -1;
+
+  snprintf(sql, sizeof(sql), "INSERT INTO %s (%s) SELECT %s FROM %s;", dst,
+           columns, columns, src);
+  return exec_sql_checked(sql);
+}
+
+int db_archive_current_logbook(void) {
+  if (db_init() != 0)
+    return -1;
+
+  if (table_is_empty("qso") && table_is_empty("call_history"))
+    return 0;
+
+  if (exec_sql("BEGIN;") != SQLITE_OK)
+    return -1;
+
+  int ok = copy_table("qso", "previous_qso",
+                      "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
+           copy_table("call_history", "previous_call_history", "id,call") == 0 &&
+           meta_set_int("previous_log_available", 1) == 0;
+
+  if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
+    return -1;
+
+  return ok ? 0 : -1;
+}
+
+int db_open_previous_logbook(void) {
+  int available = 0;
+  if (db_init() != 0)
+    return -1;
+
+  if (meta_get_previous_log_available(&available) != 0 || !available)
+    return -1;
+
+  if (exec_sql("BEGIN;") != SQLITE_OK)
+    return -1;
+
+  int ok = 0;
+
+  if (exec_sql("DROP TABLE IF EXISTS temp.swap_qso;") == SQLITE_OK) {
+    /* no-op: keep compatibility with older SQLite versions if schema changes */
+  }
+
+  ok = exec_sql_checked("CREATE TEMP TABLE temp_qso AS SELECT * FROM qso;") == 0 &&
+       exec_sql_checked("CREATE TEMP TABLE temp_call_history AS SELECT * FROM call_history;") == 0 &&
+       exec_sql_checked("DELETE FROM qso;") == 0 &&
+       exec_sql_checked("DELETE FROM call_history;") == 0 &&
+       copy_table("previous_qso", "qso",
+                  "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
+       copy_table("previous_call_history", "call_history", "id,call") == 0 &&
+       copy_table("temp_qso", "previous_qso",
+                  "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
+       copy_table("temp_call_history", "previous_call_history", "id,call") == 0 &&
+       exec_sql_checked("DROP TABLE temp_qso;") == 0 &&
+       exec_sql_checked("DROP TABLE temp_call_history;") == 0 &&
+       meta_set_int("previous_log_available", 1) == 0;
 
   if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
     return -1;

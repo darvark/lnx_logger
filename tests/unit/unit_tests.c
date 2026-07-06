@@ -286,20 +286,31 @@ static void test_qso_add_mark_and_stats(void) {
   expect_int_eq(stats.total_dxcc, 2, "stats DXCC after re-enable");
   expect_int_eq(stats.ssb, 1, "stats SSB after re-enable");
 
-  app_controller_handle_key(APP_KEY_F6);
+  app_controller_handle_key(APP_KEY_F2);
   app_controller_get_render_state(&state);
 
-  expect_int_eq(qso_count, 0, "F6 clears the logbook");
-  expect_true(state.status != NULL, "F6 status is present");
+  expect_int_eq(qso_count, 0, "F2 clears the logbook");
+  expect_true(state.status != NULL, "F2 status is present");
   if (state.status)
     expect_str_eq(state.status, "New clean log created",
-                  "F6 status confirms clean log creation");
+                  "F2 status confirms clean log creation");
 
   int idx3 = qso_add("SP9ABC 14074 599", status, sizeof(status));
   expect_int_eq(idx3, 0, "first QSO after clean log reuses index 0");
 
   int idx4 = qso_add("K1ABC 14150 59", status, sizeof(status));
   expect_int_eq(idx4, 1, "second QSO after clean log reuses index 1");
+
+  app_controller_handle_key(APP_KEY_F3);
+  app_controller_get_render_state(&state);
+
+  expect_int_eq(qso_count, 2, "F3 restores previous logbook");
+  expect_true(state.status != NULL, "F3 status is present");
+  if (state.status)
+    expect_str_eq(state.status, "Previous log opened",
+                  "F3 status confirms previous log restore");
+  expect_str_eq(logbook[0].call, "SP9ABC", "restored first QSO call");
+  expect_str_eq(logbook[1].call, "K1ABC", "restored second QSO call");
 }
 
 static void test_export_csv_adif(const char *tmp_dir) {
@@ -470,15 +481,36 @@ static void test_app_controller_key_flow(void) {
 
   ev = app_controller_handle_key(APP_KEY_F4);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
-                "F4 toggle should not request special controller event");
+                "F4 export prompt should not request special controller event");
   app_controller_get_render_state(&state);
-  expect_true(state.cluster_view, "F4 should enable cluster full view");
+  expect_true(state.status != NULL, "F4 export status is present");
+  if (state.status)
+    expect_true(strstr(state.status, "Enter ADIF filename") != NULL,
+                "F4 prompts for export filename");
 
-  ev = app_controller_handle_key(APP_KEY_F4);
+  ev = app_controller_handle_key(APP_KEY_ESC);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
-                "second F4 toggle should not request special event");
+                "ESC should cancel export prompt");
+
+  ev = app_controller_handle_key(APP_KEY_F5);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "F5 toggle should not request special controller event");
   app_controller_get_render_state(&state);
-  expect_true(!state.cluster_view, "second F4 should return to main view");
+  expect_true(state.cluster_view, "F5 should enable cluster full view");
+
+  ev = app_controller_handle_key(APP_KEY_F5);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "second F5 toggle should not request special event");
+  app_controller_get_render_state(&state);
+  expect_true(!state.cluster_view, "second F5 should return to main view");
+
+  ev = app_controller_handle_key(APP_KEY_F6);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
+                "F6 stats refresh should not request special event");
+
+  ev = app_controller_handle_key(APP_KEY_F7);
+  expect_int_eq((int)ev, (int)APP_CTRL_EVENT_REQUEST_CTY_UPDATE,
+                "F7 should request CTY update");
 
   ev = app_controller_handle_key(APP_KEY_F10);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_EXIT,

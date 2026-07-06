@@ -158,16 +158,18 @@ While running the application, you can use these commands in the input line:
 - export mylog.adi: write log.csv and custom ADIF file mylog.adi
 - invalid: mark the most recent QSO as invalid so it is skipped by exports
 - newlog / clear: create a new clean logbook and clear call-history suggestions
+- prevlog / openprev / previous: reopen the previous logbook snapshot from SQLite
 - quit: exit the program
 
 ## Function keys
 
 - F1: help/status hint
-- F2: prompt for ADIF filename, then export CSV and ADIF using the entered ADIF name
-- F3: recalculate statistics
-- F4: toggle DXCluster fullscreen view
-- F5: download the latest wl_cty.dat and reload CTY entries
-- F6: create a new clean logbook and clear call history
+- F2: create a new clean logbook and clear call history
+- F3: reopen the previous logbook snapshot from SQLite
+- F4: prompt for ADIF filename, then export CSV and ADIF using the entered ADIF name
+- F5: toggle DXCluster fullscreen view
+- F6: recalculate statistics
+- F7: download the latest wl_cty.dat and reload CTY entries
 - F10: quit
 
 ## Callsign suggestions

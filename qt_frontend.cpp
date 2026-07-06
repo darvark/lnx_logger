@@ -206,6 +206,8 @@ private:
       return APP_KEY_F5;
     case Qt::Key_F6:
       return APP_KEY_F6;
+    case Qt::Key_F7:
+      return APP_KEY_F7;
     case Qt::Key_F10:
       return APP_KEY_F10;
     case Qt::Key_Up:
@@ -546,13 +548,13 @@ private:
 
     if (cty_update_in_progress) {
         function_label_->setText(
-          clip_to_cols("F5 CTY update in progress... keyboard locked",
+          clip_to_cols("F7 CTY update in progress... keyboard locked",
                  std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #f3d24f; color: #111; font-weight: bold; }");
     } else {
         function_label_->setText(clip_to_cols(
-        "F1 Help  F2 Export  F3 Stats  F4 Cluster  F5 CTY update  F6 New Log  F10 Quit",
+        "F1 Help  F2 New Log  F3 Previous Log  F4 Export  F5 DXCluster  F6 Refresh Stats  F7 CTY update  F10 Quit",
           std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #0f5ea4; color: #f4f8ff; font-weight: bold; }");

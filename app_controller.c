@@ -97,7 +97,8 @@ static void call_history_record_from_input(const char *input) {
 
   if (strcmp(call, "EXPORT") == 0 || strcmp(call, "INVALID") == 0 ||
       strcmp(call, "QUIT") == 0 || strcmp(call, "NEWLOG") == 0 ||
-      strcmp(call, "CLEAR") == 0)
+      strcmp(call, "CLEAR") == 0 || strcmp(call, "PREVLOG") == 0 ||
+      strcmp(call, "OPENPREV") == 0 || strcmp(call, "PREVIOUS") == 0)
     return;
 
   call_history_add_memory(call);
@@ -122,15 +123,9 @@ static void clear_callsign_suggestion(void) {
     call_suggestion_matches[i][0] = 0;
 }
 
-static void create_new_clean_log(void) {
-  if (db_clear_logbook() != 0) {
-    snprintf(status_text, sizeof(status_text), "New log failed");
-    return;
-  }
-
+static void reset_loaded_log_state(void) {
   qso_init();
-  memset(call_history, 0, sizeof(call_history));
-  call_history_count = 0;
+  call_history_load_file("call_history.txt");
   clear_callsign_suggestion();
 
   input_buffer[0] = 0;
@@ -143,7 +138,26 @@ static void create_new_clean_log(void) {
   last_itu = 0;
 
   stats_update();
+}
+
+static void create_new_clean_log(void) {
+  if (db_archive_current_logbook() != 0 || db_clear_logbook() != 0) {
+    snprintf(status_text, sizeof(status_text), "New log failed");
+    return;
+  }
+
+  reset_loaded_log_state();
   snprintf(status_text, sizeof(status_text), "New clean log created");
+}
+
+static void open_previous_log(void) {
+  if (db_open_previous_logbook() != 0) {
+    snprintf(status_text, sizeof(status_text), "No previous log available");
+    return;
+  }
+
+  reset_loaded_log_state();
+  snprintf(status_text, sizeof(status_text), "Previous log opened");
 }
 
 static void refresh_callsign_suggestion(const char *input) {
@@ -225,6 +239,12 @@ static void process_command(const char *cmd) {
 
   if (strcmp(cmd, "newlog") == 0 || strcmp(cmd, "clear") == 0) {
     create_new_clean_log();
+    return;
+  }
+
+  if (strcmp(cmd, "prevlog") == 0 || strcmp(cmd, "openprev") == 0 ||
+      strcmp(cmd, "previous") == 0) {
+    open_previous_log();
     return;
   }
 
@@ -396,6 +416,16 @@ AppControllerEvent app_controller_handle_key(int key) {
     return APP_CTRL_EVENT_NONE;
 
   if (key == APP_KEY_F2) {
+    create_new_clean_log();
+    return APP_CTRL_EVENT_NONE;
+  }
+
+  if (key == APP_KEY_F3) {
+    open_previous_log();
+    return APP_CTRL_EVENT_NONE;
+  }
+
+  if (key == APP_KEY_F4) {
     export_prompt_mode = true;
     clear_callsign_suggestion();
     input_buffer[0] = 0;
@@ -413,12 +443,12 @@ AppControllerEvent app_controller_handle_key(int key) {
     return APP_CTRL_EVENT_NONE;
   }
 
-  if (key == APP_KEY_F3) {
+  if (key == APP_KEY_F6) {
     stats_update();
     snprintf(status_text, sizeof(status_text), "STATS updated");
   }
 
-  if (key == APP_KEY_F4) {
+  if (key == APP_KEY_F5) {
     cluster_view = !cluster_view;
     if (cluster_view) {
       cluster_scroll = 0;
@@ -428,16 +458,11 @@ AppControllerEvent app_controller_handle_key(int key) {
     }
   }
 
-  if (key == APP_KEY_F5) {
+  if (key == APP_KEY_F7) {
     cty_update_in_progress = 1;
     snprintf(status_text, sizeof(status_text),
              "Downloading wl_cty.dat... keyboard locked");
     return APP_CTRL_EVENT_REQUEST_CTY_UPDATE;
-  }
-
-  if (key == APP_KEY_F6) {
-    create_new_clean_log();
-    return APP_CTRL_EVENT_NONE;
   }
 
   if (cluster_view) {
@@ -463,7 +488,7 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 prompts ADIF filename");
+             "CALL FREQ RST [MODE] | F2 new log | F3 previous | F4 export");
     return APP_CTRL_EVENT_NONE;
   }
 
