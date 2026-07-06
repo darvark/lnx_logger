@@ -1,12 +1,15 @@
 # Logger
 
-Logger is a terminal-based amateur radio logging application for entering QSOs, looking up DXCC information, and monitoring DXCluster spots.
+Logger is an amateur radio logging application for entering QSOs, looking up DXCC information, and monitoring DXCluster spots.
 
-The project now also supports an optional Qt frontend that uses the same controller/core logic as the ncurses UI.
+The application uses shared controller/core logic, with Qt providing the user interface.
+
+
+![lnx_logger](./lnx_logger.png "LNX Logger") 
 
 ## What it does
 
-- Records QSOs from the terminal UI
+- Records QSOs from the Qt desktop UI
 - Displays DXCC, CQ zone, and ITU zone information while typing a callsign
 - Shows a dedicated callsign suggestions panel in the top-right corner with all matching history entries
 - Connects to a DXCluster server and shows received spots in the cluster window
@@ -31,11 +34,10 @@ The project now also supports an optional Qt frontend that uses the same control
 - C compiler (GCC or Clang)
 - CMake
 - make
-- ncurses development libraries
 - pthread support
 - curl or wget (for CTY database download)
 
-Optional for Qt frontend:
+Optional for GUI frontend:
 
 - Qt Widgets development package (Qt 5 or Qt 6)
 
@@ -43,7 +45,7 @@ On Debian/Ubuntu systems, install the required packages with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential cmake libncurses-dev
+sudo apt-get install -y build-essential cmake
 ```
 
 ## Build
@@ -57,14 +59,7 @@ cmake --build build
 
 Executables are created in the build directory:
 
-- logger (ncurses)
-- logger_qt (Qt, only if Qt Widgets was found during configure)
-
-To disable Qt target generation explicitly:
-
-```bash
-cmake -S . -B build -DLOGGER_BUILD_QT=OFF
-```
+- logger (GUI)
 
 ## Regression Tests
 
@@ -91,7 +86,7 @@ ctest --test-dir build --output-on-failure
 The project also includes unit tests in `tests/unit` to verify exported
 non-UI functions from core modules:
 
-- `app_controller`: shared frontend-independent key/state flow used by both ncurses and Qt frontends
+- `app_controller`: shared frontend-independent key/state flow used by the Qt frontend
 - `config`: `config_load`
 - `cty`: `cty_load`, `cty_lookup`
 - `qso`: `qso_init`, `qso_add`, `qso_mark_invalid`, `detect_band`, `detect_mode`
@@ -100,8 +95,8 @@ non-UI functions from core modules:
 - `maidenhead`: `locator_to_latlon`
 - `dxcluster`: `dxcluster_set_status`
 
-UI rendering itself (ncurses painting and Qt widget drawing) is intentionally
-not covered by automated tests and should be verified manually.
+UI rendering itself is intentionally not covered by automated tests and should
+be verified manually.
 
 Run all tests (regression + unit):
 
@@ -118,12 +113,9 @@ cd build
 ./logger
 ```
 
-Qt frontend:
+## Notes
 
-```bash
-cd build
-./logger_qt
-```
+- The application is intended for desktop environments.
 
 ## Configuration
 
@@ -198,6 +190,6 @@ into SQLite if the database is empty.
 
 ## Notes
 
-- The application uses ncurses, so it is intended for terminal environments.
+- The application uses Qt Widgets, so it is intended for desktop environments.
 - DXCluster connectivity depends on the configured host, port, and network access.
 - If you want to use a different DXCluster server, update DXC_HOST and DXC_PORT in logger.conf.
