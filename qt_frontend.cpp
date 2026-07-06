@@ -5,11 +5,13 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QMessageBox>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -21,6 +23,7 @@
 
 extern "C" {
 #include "app_controller.h"
+#include "db.h"
 #include "dxcluster.h"
 #include "globals.h"
 #include "qso.h"
@@ -171,6 +174,20 @@ protected:
   }
 
   void keyPressEvent(QKeyEvent *event) override {
+    if (event->key() == Qt::Key_F2) {
+      prompt_create_named_log();
+      refresh_ui();
+      event->accept();
+      return;
+    }
+
+    if (event->key() == Qt::Key_F3) {
+      prompt_open_named_log();
+      refresh_ui();
+      event->accept();
+      return;
+    }
+
     int key = translate_key(event);
     if (key == APP_KEY_NONE) {
       event->ignore();
@@ -192,6 +209,97 @@ protected:
   }
 
 private:
+  void submit_command_text(const QString &command_text) {
+    // Ensure command entry starts from a clean state; otherwise command text can
+    // be appended to partially typed QSO input and won't be recognized.
+    app_controller_handle_key(APP_KEY_ESC);
+
+    AppRenderState state;
+    app_controller_get_render_state(&state);
+    if (state.input) {
+      size_t existing_len = std::strlen(state.input);
+      for (size_t i = 0; i < existing_len; i++)
+        app_controller_handle_key(APP_KEY_BACKSPACE);
+    }
+
+    const QByteArray bytes = command_text.toUtf8();
+    for (unsigned char ch : bytes)
+      app_controller_handle_key((int)ch);
+
+    app_controller_handle_key(APP_KEY_ENTER);
+  }
+
+  void prompt_create_named_log() {
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this,
+        "Create New Log",
+        "Enter new log name:",
+        QLineEdit::Normal,
+        "",
+        &ok);
+
+    if (!ok)
+      return;
+
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+      QMessageBox::information(this, "Create New Log",
+                               "Log name cannot be empty.");
+      return;
+    }
+
+    submit_command_text(QString("newlog %1").arg(trimmed));
+  }
+
+  void prompt_open_named_log() {
+    DBNamedLogbook items[128];
+    int count = 0;
+
+    if (db_list_named_logbooks(items, 128, &count) != 0) {
+      QMessageBox::warning(this, "Open Log",
+                           "Cannot read logs from database.");
+      return;
+    }
+
+    if (count <= 0) {
+      QMessageBox::information(this, "Open Log",
+                               "No saved logs available in database.");
+      return;
+    }
+
+    QStringList options;
+    for (int i = 0; i < count; i++) {
+      options << QString("%1 | %2 | %3 QSO | %4")
+                     .arg(items[i].id)
+                     .arg(items[i].name)
+                     .arg(items[i].qso_count)
+                     .arg(items[i].created_at);
+    }
+
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(
+        this,
+        "Open Log",
+        "Select log to open:",
+        options,
+        0,
+        false,
+        &ok);
+
+    if (!ok || chosen.isEmpty())
+      return;
+
+    const QString id = chosen.section(" | ", 0, 0).trimmed();
+    if (id.isEmpty()) {
+      QMessageBox::warning(this, "Open Log",
+                           "Invalid log selection.");
+      return;
+    }
+
+    submit_command_text(QString("openlog %1").arg(id));
+  }
+
   static int translate_key(QKeyEvent *event) {
     switch (event->key()) {
     case Qt::Key_F1:
@@ -554,7 +662,7 @@ private:
           "QFrame { background: #f3d24f; color: #111; font-weight: bold; }");
     } else {
         function_label_->setText(clip_to_cols(
-        "F1 Help  F2 New Log  F3 Previous Log  F4 Export  F5 DXCluster  F6 Refresh Stats  F7 CTY update  F10 Quit",
+      "F1 Help  F2 New Named Log  F3 Open Log  F4 Export  F5 DXCluster  F6 Stats  F7 CTY  F10 Quit",
           std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #0f5ea4; color: #f4f8ff; font-weight: bold; }");

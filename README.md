@@ -28,6 +28,7 @@ The application uses shared controller/core logic, with Qt providing the user in
 - One-key CTY database update from the internet
 - SQLite-backed logbook and call-history storage with `LOGGER_DB_PATH` override
 - New clean log action to truncate the current SQLite logbook and history
+- Independent named logbooks stored in SQLite, with selection by ID or name
 
 ## Requirements
 
@@ -150,7 +151,11 @@ While running the application, you can use these commands in the input line:
 - export mylog.adi: write log.csv and custom ADIF file mylog.adi
 - invalid: mark the most recent QSO as invalid so it is skipped by exports
 - newlog / clear: create a new clean logbook and clear call-history suggestions
+- newlog My Contest Name: create and switch to a new empty logbook with the given name
 - prevlog / openprev / previous: reopen the previous logbook snapshot from SQLite
+- logs: list named log archives stored in SQLite
+- openlog 12: open a named log archive by ID
+- openlog My Contest Name: open the newest logbook that matches the given name
 - quit: exit the program
 
 ## Function keys

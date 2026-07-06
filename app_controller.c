@@ -10,6 +10,8 @@
 #include "suggestion.h"
 #include "stats.h"
 
+#include <stdlib.h>
+
 static char input_buffer[256];
 static int input_len = 0;
 
@@ -35,6 +37,8 @@ static CallSuggestionList call_suggestions;
 static bool cluster_view = false;
 static int cluster_scroll = 0;
 static bool export_prompt_mode = false;
+
+#define NAMED_LOG_LIST_MAX 12
 
 static void sync_callsign_suggestion_state(void);
 
@@ -98,7 +102,8 @@ static void call_history_record_from_input(const char *input) {
   if (strcmp(call, "EXPORT") == 0 || strcmp(call, "INVALID") == 0 ||
       strcmp(call, "QUIT") == 0 || strcmp(call, "NEWLOG") == 0 ||
       strcmp(call, "CLEAR") == 0 || strcmp(call, "PREVLOG") == 0 ||
-      strcmp(call, "OPENPREV") == 0 || strcmp(call, "PREVIOUS") == 0)
+      strcmp(call, "OPENPREV") == 0 || strcmp(call, "PREVIOUS") == 0 ||
+      strcmp(call, "OPENLOG") == 0 || strcmp(call, "LOGS") == 0)
     return;
 
   call_history_add_memory(call);
@@ -140,6 +145,36 @@ static void reset_loaded_log_state(void) {
   stats_update();
 }
 
+static int is_digits_only(const char *s) {
+  if (!s || !s[0])
+    return 0;
+
+  for (const char *p = s; *p; p++) {
+    if (!isdigit((unsigned char)*p))
+      return 0;
+  }
+
+  return 1;
+}
+
+static void trim_whitespace_in_place(char *s) {
+  if (!s)
+    return;
+
+  size_t len = strlen(s);
+  while (len > 0 && isspace((unsigned char)s[len - 1])) {
+    s[len - 1] = 0;
+    len--;
+  }
+
+  size_t start = 0;
+  while (s[start] && isspace((unsigned char)s[start]))
+    start++;
+
+  if (start > 0)
+    memmove(s, s + start, strlen(s + start) + 1);
+}
+
 static void create_new_clean_log(void) {
   if (db_archive_current_logbook() != 0 || db_clear_logbook() != 0) {
     snprintf(status_text, sizeof(status_text), "New log failed");
@@ -150,6 +185,21 @@ static void create_new_clean_log(void) {
   snprintf(status_text, sizeof(status_text), "New clean log created");
 }
 
+static void create_new_named_log(const char *name) {
+  if (!name || !name[0]) {
+    create_new_clean_log();
+    return;
+  }
+
+  if (db_archive_current_logbook_named(name) != 0) {
+    snprintf(status_text, sizeof(status_text), "New named log failed");
+    return;
+  }
+
+  reset_loaded_log_state();
+  snprintf(status_text, sizeof(status_text), "New log created: %s", name);
+}
+
 static void open_previous_log(void) {
   if (db_open_previous_logbook() != 0) {
     snprintf(status_text, sizeof(status_text), "No previous log available");
@@ -158,6 +208,66 @@ static void open_previous_log(void) {
 
   reset_loaded_log_state();
   snprintf(status_text, sizeof(status_text), "Previous log opened");
+}
+
+static void list_named_logs(void) {
+  DBNamedLogbook items[NAMED_LOG_LIST_MAX];
+  int count = 0;
+
+  if (db_list_named_logbooks(items, NAMED_LOG_LIST_MAX, &count) != 0) {
+    snprintf(status_text, sizeof(status_text), "Cannot read named logs");
+    return;
+  }
+
+  if (count <= 0) {
+    info_text[0] = 0;
+    snprintf(status_text, sizeof(status_text), "No named logs in DB");
+    return;
+  }
+
+  char line[sizeof(info_text)] = {0};
+  size_t used = 0;
+
+  for (int i = 0; i < count; i++) {
+    char piece[96];
+    snprintf(piece, sizeof(piece), "%lld:%s(%d)%s", items[i].id, items[i].name,
+             items[i].qso_count, (i + 1 < count) ? " | " : "");
+
+    size_t piece_len = strlen(piece);
+    if (used + piece_len >= sizeof(line) - 1)
+      break;
+
+    memcpy(line + used, piece, piece_len);
+    used += piece_len;
+    line[used] = 0;
+  }
+
+  snprintf(info_text, sizeof(info_text), "%s", line);
+  snprintf(status_text, sizeof(status_text),
+           "Named logs: %d (use openlog <id|name>)", count);
+}
+
+static void open_named_log_selector(const char *selector) {
+  if (!selector || !selector[0]) {
+    snprintf(status_text, sizeof(status_text), "Usage: openlog <id|name>");
+    return;
+  }
+
+  int rc = -1;
+  if (is_digits_only(selector)) {
+    rc = db_open_named_logbook_by_id(atoll(selector));
+  } else {
+    rc = db_open_named_logbook_by_name(selector);
+  }
+
+  if (rc != 0) {
+    snprintf(status_text, sizeof(status_text), "Named log not found: %s",
+             selector);
+    return;
+  }
+
+  reset_loaded_log_state();
+  snprintf(status_text, sizeof(status_text), "Log opened: %s", selector);
 }
 
 static void refresh_callsign_suggestion(const char *input) {
@@ -229,34 +339,73 @@ static int export_with_optional_adif(const char *cmd) {
   return export_with_adif_filename(adif_file);
 }
 
-static void process_command(const char *cmd) {
+static int process_command(const char *cmd) {
+  char command[32] = {0};
+  char arg[192] = {0};
+
+  if (!cmd || !cmd[0])
+    return 0;
+
+  const char *p = cmd;
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  int i = 0;
+  while (*p && !isspace((unsigned char)*p) && i < (int)sizeof(command) - 1) {
+    command[i++] = (char)tolower((unsigned char)*p);
+    p++;
+  }
+  command[i] = 0;
+
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  snprintf(arg, sizeof(arg), "%s", p);
+  trim_whitespace_in_place(arg);
+
   if (strncmp(cmd, "export", 6) == 0) {
     if (export_with_optional_adif(cmd) != 0)
       snprintf(status_text, sizeof(status_text), "Export failed");
 
-    return;
+    return 1;
   }
 
-  if (strcmp(cmd, "newlog") == 0 || strcmp(cmd, "clear") == 0) {
-    create_new_clean_log();
-    return;
+  if (strcmp(command, "newlog") == 0 || strcmp(command, "clear") == 0) {
+    if (arg[0])
+      create_new_named_log(arg);
+    else
+      create_new_clean_log();
+
+    return 1;
   }
 
-  if (strcmp(cmd, "prevlog") == 0 || strcmp(cmd, "openprev") == 0 ||
-      strcmp(cmd, "previous") == 0) {
+  if (strcmp(command, "prevlog") == 0 || strcmp(command, "openprev") == 0 ||
+      strcmp(command, "previous") == 0) {
     open_previous_log();
-    return;
+    return 1;
   }
 
-  if (strcmp(cmd, "invalid") == 0) {
+  if (strcmp(command, "logs") == 0) {
+    list_named_logs();
+    return 1;
+  }
+
+  if (strcmp(command, "openlog") == 0) {
+    open_named_log_selector(arg);
+    return 1;
+  }
+
+  if (strcmp(command, "invalid") == 0) {
     if (qso_count > 0) {
       qso_mark_invalid(qso_count - 1);
 
       snprintf(status_text, sizeof(status_text), "Last QSO toggled INVALID");
     }
 
-    return;
+    return 1;
   }
+
+  return 0;
 }
 
 static void update_dxcc_from_input(const char *input) {
@@ -488,7 +637,7 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 new log | F3 previous | F4 export");
+             "CALL FREQ RST [MODE] | F2 new | F3 previous | cmd: logs/openlog");
     return APP_CTRL_EVENT_NONE;
   }
 
@@ -556,13 +705,11 @@ AppControllerEvent app_controller_handle_key(int key) {
     }
 
     if (strlen(input_buffer)) {
-      if (strncmp(input_buffer, "export", 6) == 0) {
-        process_command(input_buffer);
-      } else if (strcmp(input_buffer, "quit") == 0) {
+      if (strcmp(input_buffer, "quit") == 0) {
         return APP_CTRL_EVENT_EXIT;
-      } else if (strcmp(input_buffer, "invalid") == 0) {
-        process_command(input_buffer);
-      } else {
+      }
+
+      if (!process_command(input_buffer)) {
         call_history_record_from_input(input_buffer);
         process_qso(input_buffer);
       }

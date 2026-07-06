@@ -38,11 +38,131 @@ static int db_is_default_path = 1;
 static int db_bootstrap_import_done = 0;
 
 static int table_is_empty(const char *table);
+static int table_has_column(const char *table, const char *column);
 static int meta_get_int(const char *key, int *value);
 static int meta_set_int(const char *key, int value);
 static int meta_get_previous_log_available(int *value);
 static int copy_table(const char *src, const char *dst, const char *columns);
 static int exec_sql_checked(const char *sql);
+static int named_logbook_exists(long long id);
+static int prepare_stmt(sqlite3_stmt **stmt, const char *sql);
+static int get_current_logbook_id(int *out_id);
+static int set_current_logbook_id(int id);
+static int set_previous_logbook_id(int id);
+static int get_previous_logbook_id(int *out_id);
+static int ensure_logbook_context(void);
+
+static int bind_text_or_null(sqlite3_stmt *stmt, int idx, const char *value) {
+  if (!value || !value[0])
+    return sqlite3_bind_text(stmt, idx, "", -1, SQLITE_TRANSIENT);
+
+  return sqlite3_bind_text(stmt, idx, value, -1, SQLITE_TRANSIENT);
+}
+
+static int table_has_column(const char *table, const char *column) {
+  if (!table || !column || !table[0] || !column[0])
+    return 0;
+
+  char sql[256];
+  snprintf(sql, sizeof(sql), "PRAGMA table_info(%s);", table);
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt, sql) != SQLITE_OK)
+    return 0;
+
+  int found = 0;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *name = (const char *)sqlite3_column_text(stmt, 1);
+    if (name && strcmp(name, column) == 0) {
+      found = 1;
+      break;
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  return found;
+}
+
+static int get_current_logbook_id(int *out_id) {
+  if (!out_id)
+    return -1;
+
+  return meta_get_int("current_logbook_id", out_id);
+}
+
+static int set_current_logbook_id(int id) {
+  if (id <= 0)
+    return -1;
+
+  return meta_set_int("current_logbook_id", id);
+}
+
+static int get_previous_logbook_id(int *out_id) {
+  if (!out_id)
+    return -1;
+
+  return meta_get_int("previous_logbook_id", out_id);
+}
+
+static int set_previous_logbook_id(int id) {
+  if (id <= 0)
+    return -1;
+
+  return meta_set_int("previous_logbook_id", id);
+}
+
+static int ensure_logbook_context(void) {
+  int current_id = 0;
+
+  sqlite3_stmt *count_stmt = NULL;
+  if (prepare_stmt(&count_stmt, "SELECT COUNT(*) FROM named_logbooks;") !=
+      SQLITE_OK)
+    return -1;
+
+  int logs_count = 0;
+  if (sqlite3_step(count_stmt) == SQLITE_ROW)
+    logs_count = sqlite3_column_int(count_stmt, 0);
+  sqlite3_finalize(count_stmt);
+
+  if (logs_count <= 0) {
+    sqlite3_stmt *insert_stmt = NULL;
+    if (prepare_stmt(&insert_stmt,
+                     "INSERT INTO named_logbooks (name, created_at) VALUES ('Default Log', CURRENT_TIMESTAMP);") !=
+        SQLITE_OK)
+      return -1;
+
+    if (sqlite3_step(insert_stmt) != SQLITE_DONE) {
+      sqlite3_finalize(insert_stmt);
+      return -1;
+    }
+
+    sqlite3_finalize(insert_stmt);
+    current_id = (int)sqlite3_last_insert_rowid(db);
+    if (set_current_logbook_id(current_id) != 0)
+      return -1;
+    return 0;
+  }
+
+  if (get_current_logbook_id(&current_id) == 0 && current_id > 0 &&
+      named_logbook_exists(current_id))
+    return 0;
+
+  sqlite3_stmt *latest_stmt = NULL;
+  if (prepare_stmt(&latest_stmt,
+                   "SELECT id FROM named_logbooks ORDER BY id ASC LIMIT 1;") !=
+      SQLITE_OK)
+    return -1;
+
+  if (sqlite3_step(latest_stmt) == SQLITE_ROW)
+    current_id = sqlite3_column_int(latest_stmt, 0);
+
+  sqlite3_finalize(latest_stmt);
+
+  if (current_id <= 0)
+    return -1;
+
+  return set_current_logbook_id(current_id);
+}
 
 static int exec_sql(const char *sql) {
   char *err = NULL;
@@ -62,12 +182,19 @@ static int prepare_stmt(sqlite3_stmt **stmt, const char *sql) {
 }
 
 static int import_call_history_file_impl(const char *path) {
+  int logbook_id = 1;
+
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
+    logbook_id = 1;
+
   FILE *f = fopen(path, "r");
   if (!f)
     return -1;
 
   sqlite3_stmt *stmt = NULL;
-  if (prepare_stmt(&stmt, "INSERT INTO call_history (call) VALUES (?);") != SQLITE_OK) {
+  if (prepare_stmt(&stmt,
+                   "INSERT INTO call_history (logbook_id, call) VALUES (?, ?);") !=
+      SQLITE_OK) {
     fclose(f);
     return -1;
   }
@@ -90,7 +217,8 @@ static int import_call_history_file_impl(const char *path) {
     if (!line[0])
       continue;
 
-    sqlite3_bind_text(stmt, 1, line, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 1, logbook_id);
+    sqlite3_bind_text(stmt, 2, line, -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     if (rc == SQLITE_DONE)
       imported++;
@@ -132,6 +260,7 @@ static int ensure_open(void) {
   if (exec_sql(
           "CREATE TABLE IF NOT EXISTS qso ("
           "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+      "logbook_id INTEGER NOT NULL DEFAULT 1,"
           "date TEXT NOT NULL,"
           "utc TEXT NOT NULL,"
           "call TEXT NOT NULL,"
@@ -149,6 +278,7 @@ static int ensure_open(void) {
   if (exec_sql(
           "CREATE TABLE IF NOT EXISTS call_history ("
           "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+      "logbook_id INTEGER NOT NULL DEFAULT 1,"
           "call TEXT NOT NULL"
           ");") != SQLITE_OK)
     return -1;
@@ -182,6 +312,53 @@ static int ensure_open(void) {
           "key TEXT PRIMARY KEY,"
           "value INTEGER NOT NULL"
           ");") != SQLITE_OK)
+    return -1;
+
+  if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS named_logbooks ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "name TEXT NOT NULL,"
+          "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS named_qso ("
+          "logbook_id INTEGER NOT NULL,"
+          "entry_order INTEGER NOT NULL,"
+          "date TEXT NOT NULL,"
+          "utc TEXT NOT NULL,"
+          "call TEXT NOT NULL,"
+          "freq INTEGER NOT NULL,"
+          "band TEXT NOT NULL,"
+          "mode TEXT NOT NULL,"
+          "rst TEXT NOT NULL,"
+          "country TEXT NOT NULL,"
+          "cq_zone INTEGER NOT NULL,"
+          "itu_zone INTEGER NOT NULL,"
+          "invalid INTEGER NOT NULL DEFAULT 0"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (exec_sql(
+          "CREATE TABLE IF NOT EXISTS named_call_history ("
+          "logbook_id INTEGER NOT NULL,"
+          "entry_order INTEGER NOT NULL,"
+          "call TEXT NOT NULL"
+          ");") != SQLITE_OK)
+    return -1;
+
+  if (!table_has_column("qso", "logbook_id")) {
+    if (exec_sql_checked("ALTER TABLE qso ADD COLUMN logbook_id INTEGER NOT NULL DEFAULT 1;") != 0)
+      return -1;
+  }
+
+  if (!table_has_column("call_history", "logbook_id")) {
+    if (exec_sql_checked("ALTER TABLE call_history ADD COLUMN logbook_id INTEGER NOT NULL DEFAULT 1;") != 0)
+      return -1;
+  }
+
+  if (ensure_logbook_context() != 0)
     return -1;
 
   if (db_is_default_path && !db_bootstrap_import_done) {
@@ -287,11 +464,17 @@ int db_load_qsos(QSO *logbook, int max_qso, long long *ids, int *out_count) {
   if (db_init() != 0)
     return -1;
 
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
+    return -1;
+
   sqlite3_stmt *stmt = NULL;
   if (prepare_stmt(&stmt,
                    "SELECT id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid "
-                   "FROM qso ORDER BY id ASC;") != SQLITE_OK)
+                   "FROM qso WHERE logbook_id = ? ORDER BY id ASC;") != SQLITE_OK)
     return -1;
+
+  sqlite3_bind_int(stmt, 1, logbook_id);
 
   int count = 0;
   while (sqlite3_step(stmt) == SQLITE_ROW && count < max_qso) {
@@ -335,23 +518,28 @@ int db_insert_qso(const QSO *qso, long long *out_id) {
   if (db_init() != 0)
     return -1;
 
-  sqlite3_stmt *stmt = NULL;
-  if (prepare_stmt(&stmt,
-                   "INSERT INTO qso (date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid) "
-                   "VALUES (?,?,?,?,?,?,?,?,?,?,?);") != SQLITE_OK)
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
     return -1;
 
-  sqlite3_bind_text(stmt, 1, qso->date, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, qso->utc, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 3, qso->call, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmt, 4, qso->freq);
-  sqlite3_bind_text(stmt, 5, qso->band, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 6, qso->mode, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 7, qso->rst, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 8, qso->country, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmt, 9, qso->cq_zone);
-  sqlite3_bind_int(stmt, 10, qso->itu_zone);
-  sqlite3_bind_int(stmt, 11, qso->invalid ? 1 : 0);
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "INSERT INTO qso (logbook_id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);") != SQLITE_OK)
+    return -1;
+
+  sqlite3_bind_int(stmt, 1, logbook_id);
+  sqlite3_bind_text(stmt, 2, qso->date, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, qso->utc, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 4, qso->call, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 5, qso->freq);
+  sqlite3_bind_text(stmt, 6, qso->band, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 7, qso->mode, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 8, qso->rst, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 9, qso->country, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 10, qso->cq_zone);
+  sqlite3_bind_int(stmt, 11, qso->itu_zone);
+  sqlite3_bind_int(stmt, 12, qso->invalid ? 1 : 0);
 
   int rc = sqlite3_step(stmt);
   if (rc != SQLITE_DONE) {
@@ -373,12 +561,19 @@ int db_update_qso_invalid(long long id, int invalid) {
   if (db_init() != 0)
     return -1;
 
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
+    return -1;
+
   sqlite3_stmt *stmt = NULL;
-  if (prepare_stmt(&stmt, "UPDATE qso SET invalid = ? WHERE id = ?;") != SQLITE_OK)
+  if (prepare_stmt(&stmt,
+                   "UPDATE qso SET invalid = ? WHERE id = ? AND logbook_id = ?;") !=
+      SQLITE_OK)
     return -1;
 
   sqlite3_bind_int(stmt, 1, invalid ? 1 : 0);
   sqlite3_bind_int64(stmt, 2, id);
+  sqlite3_bind_int(stmt, 3, logbook_id);
 
   int rc = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
@@ -396,9 +591,17 @@ int db_load_call_history(char history[][32], int max_history, int *out_count) {
   if (db_init() != 0)
     return -1;
 
-  sqlite3_stmt *stmt = NULL;
-  if (prepare_stmt(&stmt, "SELECT call FROM call_history ORDER BY id ASC;") != SQLITE_OK)
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
     return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "SELECT call FROM call_history WHERE logbook_id = ? ORDER BY id ASC;") !=
+      SQLITE_OK)
+    return -1;
+
+  sqlite3_bind_int(stmt, 1, logbook_id);
 
   int count = 0;
   while (sqlite3_step(stmt) == SQLITE_ROW && count < max_history) {
@@ -424,11 +627,18 @@ int db_append_call_history(const char *call) {
   if (db_init() != 0)
     return -1;
 
-  sqlite3_stmt *stmt = NULL;
-  if (prepare_stmt(&stmt, "INSERT INTO call_history (call) VALUES (?);") != SQLITE_OK)
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
     return -1;
 
-  sqlite3_bind_text(stmt, 1, call, -1, SQLITE_TRANSIENT);
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "INSERT INTO call_history (logbook_id, call) VALUES (?, ?);") !=
+      SQLITE_OK)
+    return -1;
+
+  sqlite3_bind_int(stmt, 1, logbook_id);
+  sqlite3_bind_text(stmt, 2, call, -1, SQLITE_TRANSIENT);
   int rc = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
 
@@ -449,11 +659,29 @@ int db_clear_logbook(void) {
   if (db_init() != 0)
     return -1;
 
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0)
+    return -1;
+
   if (exec_sql("BEGIN;") != SQLITE_OK)
     return -1;
 
-  int ok = exec_sql("DELETE FROM qso;") == SQLITE_OK &&
-           exec_sql("DELETE FROM call_history;") == SQLITE_OK;
+  sqlite3_stmt *del_qso = NULL;
+  sqlite3_stmt *del_hist = NULL;
+  int ok = 0;
+
+  if (prepare_stmt(&del_qso, "DELETE FROM qso WHERE logbook_id = ?;") == SQLITE_OK &&
+      prepare_stmt(&del_hist,
+                   "DELETE FROM call_history WHERE logbook_id = ?;") == SQLITE_OK) {
+    sqlite3_bind_int(del_qso, 1, logbook_id);
+    sqlite3_bind_int(del_hist, 1, logbook_id);
+    ok = sqlite3_step(del_qso) == SQLITE_DONE && sqlite3_step(del_hist) == SQLITE_DONE;
+  }
+
+  if (del_qso)
+    sqlite3_finalize(del_qso);
+  if (del_hist)
+    sqlite3_finalize(del_hist);
 
   if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
     return -1;
@@ -480,58 +708,171 @@ int db_archive_current_logbook(void) {
   if (db_init() != 0)
     return -1;
 
-  if (table_is_empty("qso") && table_is_empty("call_history"))
-    return 0;
-
-  if (exec_sql("BEGIN;") != SQLITE_OK)
+  int current_id = 0;
+  if (get_current_logbook_id(&current_id) != 0 || current_id <= 0)
     return -1;
 
-  int ok = copy_table("qso", "previous_qso",
-                      "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
-           copy_table("call_history", "previous_call_history", "id,call") == 0 &&
-           meta_set_int("previous_log_available", 1) == 0;
-
-  if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
-    return -1;
-
-  return ok ? 0 : -1;
+  return set_previous_logbook_id(current_id);
 }
 
 int db_open_previous_logbook(void) {
-  int available = 0;
   if (db_init() != 0)
     return -1;
 
-  if (meta_get_previous_log_available(&available) != 0 || !available)
+  int current_id = 0;
+  int previous_id = 0;
+
+  if (get_current_logbook_id(&current_id) != 0 || current_id <= 0)
     return -1;
 
-  if (exec_sql("BEGIN;") != SQLITE_OK)
+  if (get_previous_logbook_id(&previous_id) != 0 || previous_id <= 0 ||
+      !named_logbook_exists(previous_id))
     return -1;
 
-  int ok = 0;
+  if (set_current_logbook_id(previous_id) != 0)
+    return -1;
 
-  if (exec_sql("DROP TABLE IF EXISTS temp.swap_qso;") == SQLITE_OK) {
-    /* no-op: keep compatibility with older SQLite versions if schema changes */
+  if (set_previous_logbook_id(current_id) != 0)
+    return -1;
+
+  return 0;
+}
+
+static int named_logbook_exists(long long id) {
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt, "SELECT 1 FROM named_logbooks WHERE id = ?;") !=
+      SQLITE_OK)
+    return 0;
+
+  sqlite3_bind_int64(stmt, 1, id);
+  int found = sqlite3_step(stmt) == SQLITE_ROW;
+  sqlite3_finalize(stmt);
+  return found;
+}
+
+int db_archive_current_logbook_named(const char *name) {
+  if (!name || !name[0])
+    return -1;
+
+  if (db_init() != 0)
+    return -1;
+
+  int current_id = 0;
+  if (get_current_logbook_id(&current_id) != 0 || current_id <= 0)
+    return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "INSERT INTO named_logbooks (name, created_at) VALUES (?, CURRENT_TIMESTAMP);") !=
+      SQLITE_OK)
+    return -1;
+
+  bind_text_or_null(stmt, 1, name);
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    sqlite3_finalize(stmt);
+    return -1;
   }
 
-  ok = exec_sql_checked("CREATE TEMP TABLE temp_qso AS SELECT * FROM qso;") == 0 &&
-       exec_sql_checked("CREATE TEMP TABLE temp_call_history AS SELECT * FROM call_history;") == 0 &&
-       exec_sql_checked("DELETE FROM qso;") == 0 &&
-       exec_sql_checked("DELETE FROM call_history;") == 0 &&
-       copy_table("previous_qso", "qso",
-                  "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
-       copy_table("previous_call_history", "call_history", "id,call") == 0 &&
-       copy_table("temp_qso", "previous_qso",
-                  "id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid") == 0 &&
-       copy_table("temp_call_history", "previous_call_history", "id,call") == 0 &&
-       exec_sql_checked("DROP TABLE temp_qso;") == 0 &&
-       exec_sql_checked("DROP TABLE temp_call_history;") == 0 &&
-       meta_set_int("previous_log_available", 1) == 0;
+  int new_id = (int)sqlite3_last_insert_rowid(db);
+  sqlite3_finalize(stmt);
 
-  if (exec_sql(ok ? "COMMIT;" : "ROLLBACK;") != SQLITE_OK)
+  if (new_id <= 0)
     return -1;
 
-  return ok ? 0 : -1;
+  if (set_previous_logbook_id(current_id) != 0)
+    return -1;
+
+  if (set_current_logbook_id(new_id) != 0)
+    return -1;
+
+  return 0;
+}
+
+int db_list_named_logbooks(DBNamedLogbook *out, int max_items, int *out_count) {
+  if (out_count)
+    *out_count = 0;
+
+  if (!out || max_items <= 0)
+    return -1;
+
+  if (db_init() != 0)
+    return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "SELECT nl.id,nl.name,nl.created_at,"
+                   "(SELECT COUNT(*) FROM qso nq WHERE nq.logbook_id = nl.id) "
+                   "FROM named_logbooks nl ORDER BY nl.id DESC;") != SQLITE_OK)
+    return -1;
+
+  int count = 0;
+  while (sqlite3_step(stmt) == SQLITE_ROW && count < max_items) {
+    DBNamedLogbook *item = &out[count];
+    memset(item, 0, sizeof(*item));
+
+    item->id = sqlite3_column_int64(stmt, 0);
+    snprintf(item->name, sizeof(item->name), "%s",
+             (const char *)sqlite3_column_text(stmt, 1));
+    snprintf(item->created_at, sizeof(item->created_at), "%s",
+             (const char *)sqlite3_column_text(stmt, 2));
+    item->qso_count = sqlite3_column_int(stmt, 3);
+
+    count++;
+  }
+
+  sqlite3_finalize(stmt);
+
+  if (out_count)
+    *out_count = count;
+
+  return 0;
+}
+
+int db_open_named_logbook_by_id(long long id) {
+  if (id <= 0)
+    return -1;
+
+  if (db_init() != 0)
+    return -1;
+
+  if (!named_logbook_exists(id))
+    return -1;
+
+  int current_id = 0;
+  if (get_current_logbook_id(&current_id) != 0 || current_id <= 0)
+    return -1;
+
+  if (set_previous_logbook_id(current_id) != 0)
+    return -1;
+
+  return set_current_logbook_id((int)id);
+}
+
+int db_open_named_logbook_by_name(const char *name) {
+  if (!name || !name[0])
+    return -1;
+
+  if (db_init() != 0)
+    return -1;
+
+  sqlite3_stmt *stmt = NULL;
+  if (prepare_stmt(&stmt,
+                   "SELECT id FROM named_logbooks WHERE name = ? ORDER BY id DESC LIMIT 1;") !=
+      SQLITE_OK)
+    return -1;
+
+  bind_text_or_null(stmt, 1, name);
+  long long id = 0;
+
+  if (sqlite3_step(stmt) == SQLITE_ROW)
+    id = sqlite3_column_int64(stmt, 0);
+
+  sqlite3_finalize(stmt);
+
+  if (id <= 0)
+    return -1;
+
+  return db_open_named_logbook_by_id(id);
 }
 
 static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {
@@ -581,11 +922,21 @@ int db_export_csv(const char *filename) {
     return -1;
   }
 
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0) {
+    fclose(f);
+    return -1;
+  }
+
   fprintf(f, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY\n");
 
-  int rc = export_qso_rows(
-      "SELECT date,utc,call,freq,band,mode,rst,country FROM qso WHERE invalid = 0 ORDER BY id ASC;",
-      f, 0);
+  char sql[256];
+  snprintf(sql, sizeof(sql),
+           "SELECT date,utc,call,freq,band,mode,rst,country FROM qso "
+           "WHERE logbook_id = %d AND invalid = 0 ORDER BY id ASC;",
+           logbook_id);
+
+  int rc = export_qso_rows(sql, f, 0);
 
   fclose(f);
   return rc;
@@ -601,12 +952,22 @@ int db_export_adif(const char *filename) {
     return -1;
   }
 
+  int logbook_id = 0;
+  if (get_current_logbook_id(&logbook_id) != 0 || logbook_id <= 0) {
+    fclose(f);
+    return -1;
+  }
+
   fprintf(f, "Generated by Logger\n");
   fprintf(f, "<EOH>\n");
 
-  int rc = export_qso_rows(
-      "SELECT date,utc,call,freq,band,mode,rst,country FROM qso WHERE invalid = 0 ORDER BY id ASC;",
-      f, 1);
+  char sql[256];
+  snprintf(sql, sizeof(sql),
+           "SELECT date,utc,call,freq,band,mode,rst,country FROM qso "
+           "WHERE logbook_id = %d AND invalid = 0 ORDER BY id ASC;",
+           logbook_id);
+
+  int rc = export_qso_rows(sql, f, 1);
 
   fclose(f);
   return rc;

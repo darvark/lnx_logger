@@ -515,6 +515,63 @@ static void test_app_controller_key_flow(void) {
   ev = app_controller_handle_key(APP_KEY_F10);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_EXIT,
                 "F10 should request exit event");
+
+  app_controller_shutdown();
+}
+
+static void send_controller_text(const char *text) {
+  if (!text)
+    return;
+
+  for (const char *p = text; *p; p++)
+    app_controller_handle_key((unsigned char)*p);
+
+  app_controller_handle_key(APP_KEY_ENTER);
+}
+
+static void test_named_log_commands(void) {
+  AppRenderState state;
+
+  app_controller_init();
+  app_controller_handle_key(APP_KEY_F2);
+  expect_int_eq(qso_count, 0, "start named-log test from clean logbook");
+
+  send_controller_text("SP9ABC 14074 599");
+  expect_int_eq(qso_count, 1, "one QSO added before named archive");
+
+  send_controller_text("newlog Summer Contest");
+  app_controller_get_render_state(&state);
+  expect_int_eq(qso_count, 0, "newlog <name> clears active logbook");
+  expect_true(state.status != NULL, "newlog status exists");
+  if (state.status)
+    expect_true(strstr(state.status, "New log created: Summer Contest") != NULL,
+                "newlog should confirm selected name");
+
+  send_controller_text("logs");
+  app_controller_get_render_state(&state);
+  expect_true(state.status != NULL, "logs status exists");
+  expect_true(state.info != NULL, "logs info exists");
+  if (state.status)
+    expect_true(strstr(state.status, "Named logs:") != NULL,
+                "logs should report available named archives");
+  if (state.info)
+    expect_true(strstr(state.info, "Summer Contest") != NULL,
+                "logs output should include archived log name");
+
+  app_controller_handle_key(APP_KEY_F3);
+  expect_int_eq(qso_count, 1,
+                "previous log should restore original QSO set");
+
+  send_controller_text("openlog Summer Contest");
+  app_controller_get_render_state(&state);
+  expect_int_eq(qso_count, 0,
+                "openlog <name> opens independent empty logbook");
+  expect_true(state.status != NULL, "openlog status exists");
+  if (state.status)
+    expect_true(strstr(state.status, "Log opened: Summer Contest") != NULL,
+                "openlog should confirm selected log name");
+
+  app_controller_shutdown();
 }
 
 int main(void) {
@@ -539,6 +596,7 @@ int main(void) {
   test_dxcluster_start_stop();
   test_call_suggestions();
   test_app_controller_key_flow();
+  test_named_log_commands();
 
   if (g_failures == 0) {
     printf("All unit tests passed.\n");
