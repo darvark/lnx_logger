@@ -14,6 +14,7 @@ include_directories(src)
 add_executable(logger
     logger.c
     ui.c
+    suggestion.c
     qso.c
     config.c
     cty.c
@@ -31,6 +32,7 @@ target_link_libraries(logger
 
 add_executable(regression_tests
     tests/regression/regression_tests.c
+    suggestion.c
     config.c
     cty.c
     qso.c
@@ -52,6 +54,7 @@ add_test(NAME regression_tests COMMAND regression_tests)
 
 add_executable(unit_tests
     tests/unit/unit_tests.c
+    suggestion.c
     config.c
     cty.c
     qso.c

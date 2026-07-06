@@ -6,6 +6,7 @@ Logger is a terminal-based amateur radio logging application for entering QSOs, 
 
 - Records QSOs from the terminal UI
 - Displays DXCC, CQ zone, and ITU zone information while typing a callsign
+- Shows a dedicated callsign suggestions panel in the top-right corner with all matching history entries
 - Connects to a DXCluster server and shows received spots in the cluster window
 - Tracks simple statistics
 - Exports log data to CSV and ADIF files
@@ -13,6 +14,7 @@ Logger is a terminal-based amateur radio logging application for entering QSOs, 
 ## Features
 
 - QSO entry with frequency, RST, and mode detection
+- Callsign history suggestions with multi-match list view (top-right panel)
 - Local DXCC lookup from a CTY database
 - DXCluster status and spot display
 - Invalid QSO marking for export exclusion
@@ -136,6 +138,17 @@ While running the application, you can use these commands in the input line:
 - F4: toggle DXCluster fullscreen view
 - F5: download the latest wl_cty.dat and reload CTY entries
 - F10: quit
+
+## Callsign suggestions
+
+When you start typing the first token (callsign), Logger checks `call_history.txt`
+and shows all matching callsigns in a separate window in the top-right corner.
+
+- Suggestions are ordered by recency (newest first)
+- Use Up/Down arrows to select a different suggested callsign
+- Press Space to apply the currently selected suggestion and continue with the next field
+- Press Tab to apply the currently selected suggestion
+- Suggestions are shown only while editing the first token
 
 ## Data files
 

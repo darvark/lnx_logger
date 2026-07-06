@@ -4,6 +4,7 @@
 #include "export.h"
 #include "globals.h"
 #include "qso.h"
+#include "suggestion.h"
 #include "stats.h"
 #include "ui.h"
 
@@ -17,14 +18,17 @@ int last_cq = 0;
 int last_itu = 0;
 int cty_update_in_progress = 0;
 int call_suggestion_available = 0;
+int call_suggestion_count = 0;
+int call_suggestion_selected_index = 0;
+char call_suggestion_matches[CALL_SUGGESTION_MAX][CALL_SUGGESTION_LEN] = {{0}};
 
 #define MAX_CALL_HISTORY 20000
 
 static char call_history[MAX_CALL_HISTORY][32];
 static int call_history_count = 0;
+static CallSuggestionList call_suggestions;
 
-static char suggested_call[32] = {0};
-static bool has_call_suggestion = false;
+static void sync_callsign_suggestion_state(void);
 
 static int extract_callsign_token(const char *input, char *out, size_t out_size) {
   if (!input || !out || out_size < 2)
@@ -121,87 +125,40 @@ static void call_history_load_file(const char *path) {
 }
 
 static void clear_callsign_suggestion(void) {
-  has_call_suggestion = false;
+  call_suggestion_list_clear(&call_suggestions);
   call_suggestion_available = 0;
-  suggested_call[0] = 0;
+  call_suggestion_count = 0;
+  call_suggestion_selected_index = 0;
+
+  for (int i = 0; i < CALL_SUGGESTION_MAX; i++)
+    call_suggestion_matches[i][0] = 0;
 }
 
 static void refresh_callsign_suggestion(const char *input) {
   clear_callsign_suggestion();
 
-  if (!input || !input[0])
-    return;
-
-  size_t in_len = strlen(input);
-  size_t start = 0;
-
-  while (start < in_len && isspace((unsigned char)input[start]))
-    start++;
-
-  if (start >= in_len)
-    return;
-
-  size_t end = start;
-  while (end < in_len && !isspace((unsigned char)input[end]) &&
-         input[end] != ';') {
-    end++;
-  }
-
-  if (end >= in_len)
-    ;
-  else if (isspace((unsigned char)input[end]))
-    return;
-
-  size_t token_len = end - start;
-  if (token_len < 1 || token_len >= sizeof(suggested_call))
-    return;
-
-  char prefix[32] = {0};
-  if (!extract_callsign_token(input, prefix, sizeof(prefix)))
-    return;
-
-  for (int i = call_history_count - 1; i >= 0; i--) {
-    if (strncmp(call_history[i], prefix, token_len) != 0)
-      continue;
-
-    if (strcmp(call_history[i], prefix) == 0)
-      continue;
-
-    snprintf(suggested_call, sizeof(suggested_call), "%s", call_history[i]);
-    has_call_suggestion = true;
-    call_suggestion_available = 1;
-    return;
-  }
+  call_suggestion_refresh(&call_suggestions, input, call_history,
+                          call_history_count);
+  sync_callsign_suggestion_state();
 }
 
 static int apply_callsign_suggestion(char *input, int *len) {
-  if (!input || !len || !has_call_suggestion)
-    return 0;
+  return call_suggestion_apply(&call_suggestions, input, len,
+                               sizeof(input_buffer));
+}
 
-  size_t in_len = strlen(input);
-  size_t start = 0;
+static void sync_callsign_suggestion_state(void) {
+  call_suggestion_count = call_suggestions.count;
+  call_suggestion_selected_index = call_suggestions.selected;
+  call_suggestion_available = call_suggestion_count > 0;
 
-  while (start < in_len && isspace((unsigned char)input[start]))
-    start++;
-
-  size_t end = start;
-  while (end < in_len && !isspace((unsigned char)input[end]) &&
-         input[end] != ';') {
-    end++;
+  for (int i = 0; i < CALL_SUGGESTION_MAX; i++) {
+    if (i < call_suggestion_count)
+      snprintf(call_suggestion_matches[i], CALL_SUGGESTION_LEN, "%s",
+               call_suggestions.matches[i]);
+    else
+      call_suggestion_matches[i][0] = 0;
   }
-
-  size_t sugg_len = strlen(suggested_call);
-  size_t suffix_len = in_len - end;
-
-  if (start + sugg_len + suffix_len >= sizeof(input_buffer))
-    return 0;
-
-  memmove(input + start + sugg_len, input + end, suffix_len + 1);
-  memcpy(input + start, suggested_call, sugg_len);
-
-  *len = (int)strlen(input);
-
-  return 1;
 }
 
 static int export_with_adif_filename(const char *adif_file) {
@@ -367,9 +324,18 @@ int main(void) {
   char display_info[128];
 
   while (1) {
-    if (has_call_suggestion && !export_prompt_mode)
-      snprintf(display_info, sizeof(display_info), "Suggest: %s [Tab]",
-               suggested_call);
+    if (call_suggestion_available && !export_prompt_mode) {
+      const char *selected = call_suggestion_selected(&call_suggestions);
+      if (selected && call_suggestion_count > 1) {
+        snprintf(display_info, sizeof(display_info), "Suggest: %s (+%d more) [Tab]",
+                 selected, call_suggestion_count - 1);
+      } else if (selected) {
+        snprintf(display_info, sizeof(display_info), "Suggest: %s [Tab]",
+                 selected);
+      } else {
+        snprintf(display_info, sizeof(display_info), "%s", info_text);
+      }
+    }
     else
       snprintf(display_info, sizeof(display_info), "%s", info_text);
 
@@ -485,6 +451,32 @@ int main(void) {
         update_dxcc_from_input(input_buffer);
         refresh_callsign_suggestion(input_buffer);
       }
+      continue;
+    }
+
+    if (!export_prompt_mode && call_suggestion_available && ch == KEY_UP) {
+      call_suggestion_select_prev(&call_suggestions);
+      sync_callsign_suggestion_state();
+      continue;
+    }
+
+    if (!export_prompt_mode && call_suggestion_available && ch == KEY_DOWN) {
+      call_suggestion_select_next(&call_suggestions);
+      sync_callsign_suggestion_state();
+      continue;
+    }
+
+    if (!export_prompt_mode && call_suggestion_available && ch == ' ') {
+      if (apply_callsign_suggestion(input_buffer, &len)) {
+        if (len < (int)sizeof(input_buffer) - 1 &&
+            (len == 0 || input_buffer[len - 1] != ' ')) {
+          input_buffer[len++] = ' ';
+          input_buffer[len] = 0;
+        }
+      }
+
+      update_dxcc_from_input(input_buffer);
+      refresh_callsign_suggestion(input_buffer);
       continue;
     }
 

@@ -8,6 +8,7 @@ WINDOW *w_info = NULL;
 WINDOW *w_cluster = NULL;
 WINDOW *w_func = NULL;
 WINDOW *w_stats = NULL;
+WINDOW *w_suggest = NULL;
 
 static int log_h;
 static int input_h;
@@ -67,6 +68,22 @@ static void create_windows(void) {
 
   w_func = newwin(func_h, cols, y, 0);
 
+  int suggest_w = cols / 3;
+  if (suggest_w < 24)
+    suggest_w = 24;
+  if (suggest_w > 40)
+    suggest_w = 40;
+
+  int suggest_h = 8;
+  if (suggest_h > log_h)
+    suggest_h = log_h;
+
+  if (suggest_w >= cols - 2)
+    suggest_w = cols - 2;
+
+  if (suggest_w > 0)
+    w_suggest = newwin(suggest_h, suggest_w, 0, cols - suggest_w);
+
   keypad(stdscr, TRUE);
   keypad(w_input, TRUE);
 }
@@ -88,6 +105,8 @@ static void destroy_windows(void) {
     delwin(w_cluster);
   if (w_func)
     delwin(w_func);
+  if (w_suggest)
+    delwin(w_suggest);
 
   w_log = NULL;
   w_input = NULL;
@@ -97,6 +116,7 @@ static void destroy_windows(void) {
   w_stats = NULL;
   w_cluster = NULL;
   w_func = NULL;
+  w_suggest = NULL;
 }
 
 void ui_init(void) {
@@ -270,6 +290,40 @@ void draw_cluster(void) {
 
 /* ------------------------------------------------ */
 
+void draw_suggestions(void) {
+  if (!w_suggest)
+    return;
+
+  if (!call_suggestion_available || call_suggestion_count <= 0)
+    return;
+
+  werase(w_suggest);
+  box(w_suggest, 0, 0);
+
+  wattron(w_suggest, COLOR_PAIR(1) | A_BOLD);
+  mvwprintw(w_suggest, 0, 2, " Call Suggestions ");
+  wattroff(w_suggest, COLOR_PAIR(1) | A_BOLD);
+
+  int visible = getmaxy(w_suggest) - 2;
+  int content_w = getmaxx(w_suggest) - 4;
+  if (content_w < 6)
+    content_w = 6;
+
+  for (int i = 0; i < call_suggestion_count && i < visible; i++) {
+    if (i == call_suggestion_selected_index)
+      wattron(w_suggest, COLOR_PAIR(8) | A_BOLD);
+
+    mvwprintw(w_suggest, i + 1, 2, "%-*.*s", content_w, content_w,
+              call_suggestion_matches[i]);
+
+    if (i == call_suggestion_selected_index)
+      wattroff(w_suggest, COLOR_PAIR(8) | A_BOLD);
+  }
+
+}
+
+/* ------------------------------------------------ */
+
 void draw_cluster_fullscreen(int scroll) {
   werase(stdscr);
   box(stdscr, 0, 0);
@@ -345,6 +399,7 @@ void draw_all(const char *input, const char *status, const char *dxcc,
   draw_stats();
   draw_cluster();
   draw_function_bar();
+  draw_suggestions();
 
   wnoutrefresh(w_log);
   wnoutrefresh(w_input);
@@ -354,6 +409,9 @@ void draw_all(const char *input, const char *status, const char *dxcc,
   wnoutrefresh(w_stats);
   wnoutrefresh(w_cluster);
   wnoutrefresh(w_func);
+
+  if (call_suggestion_available && call_suggestion_count > 0)
+    wnoutrefresh(w_suggest);
 
   doupdate();
 }

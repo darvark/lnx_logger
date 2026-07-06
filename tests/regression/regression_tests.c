@@ -3,6 +3,7 @@
 #include "export.h"
 #include "maidenhead.h"
 #include "qso.h"
+#include "suggestion.h"
 #include "stats.h"
 
 #include <errno.h>
@@ -274,6 +275,50 @@ static void test_maidenhead_conversion(void) {
                 "invalid locator ZZ99 should fail");
 }
 
+static void test_call_suggestions(void) {
+  CallSuggestionList list;
+  char history[8][CALL_SUGGESTION_LEN] = {
+      "SP3ABC", "SQ9XYZ", "SP9AAA", "SN0HQ", "SP9XYZ", "SP9AAA", "K1ABC", "SP8QWE"};
+
+  call_suggestion_list_clear(&list);
+
+  call_suggestion_refresh(&list, "sp", history, 8);
+  expect_true(list.count >= 4, "SP prefix should return multiple suggestions");
+  expect_str_eq(list.matches[0], "SP8QWE", "newest matching call appears first");
+  expect_str_eq(list.matches[1], "SP9AAA", "second suggestion respects recency");
+  expect_str_eq(list.matches[2], "SP9XYZ", "third suggestion respects recency");
+  expect_str_eq(list.matches[3], "SP3ABC", "older suggestion still listed");
+
+  call_suggestion_select_next(&list);
+  expect_str_eq(call_suggestion_selected(&list), "SP9AAA",
+                "down arrow selection should move to next match");
+
+  call_suggestion_select_prev(&list);
+  expect_str_eq(call_suggestion_selected(&list), "SP8QWE",
+                "up arrow selection should move to previous match");
+
+  call_suggestion_select_prev(&list);
+  expect_str_eq(call_suggestion_selected(&list), "SP3ABC",
+                "previous on first match should wrap to last");
+
+  char input[64] = "sp9;599";
+  int len = (int)strlen(input);
+  call_suggestion_refresh(&list, input, history, 8);
+  call_suggestion_select_next(&list);
+  expect_true(call_suggestion_apply(&list, input, &len, sizeof(input)) == 1,
+              "apply should replace first token with selected suggestion");
+  expect_str_eq(input, "SP9XYZ;599",
+                "apply should keep suffix after first token and use selected match");
+
+  call_suggestion_refresh(&list, "SP9AAA", history, 8);
+  expect_int_eq(list.count, 0,
+                "exact callsign should not suggest the same value");
+
+  call_suggestion_refresh(&list, "SP9 ", history, 8);
+  expect_int_eq(list.count, 0,
+                "no suggestions after first token is completed");
+}
+
 int main(void) {
   char tmp_dir[256];
   if (make_temp_dir(tmp_dir, sizeof(tmp_dir)) != 0) {
@@ -286,6 +331,7 @@ int main(void) {
   test_qso_and_stats_logic();
   test_export_outputs(tmp_dir);
   test_maidenhead_conversion();
+  test_call_suggestions();
 
   if (g_failures == 0) {
     printf("All regression tests passed.\n");
