@@ -1,9 +1,12 @@
 #include "export.h"
+#include "db.h"
 #include "qso.h"
 
 int export_csv(const char *filename) {
-  FILE *f = fopen(filename, "w");
+  if (db_export_csv(filename) == 0)
+    return 0;
 
+  FILE *f = fopen(filename, "w");
   if (!f)
     return -1;
 
@@ -20,13 +23,14 @@ int export_csv(const char *filename) {
   }
 
   fclose(f);
-
   return 0;
 }
 
 int export_adif(const char *filename) {
-  FILE *f = fopen(filename, "w");
+  if (db_export_adif(filename) == 0)
+    return 0;
 
+  FILE *f = fopen(filename, "w");
   if (!f)
     return -1;
 
@@ -40,18 +44,12 @@ int export_adif(const char *filename) {
       continue;
 
     fprintf(f, "<CALL:%zu>%s", strlen(q->call), q->call);
-
     fprintf(f, "<QSO_DATE:8>%s", q->date);
-
     fprintf(f, "<TIME_ON:4>%s", q->utc);
-
     fprintf(f, "<FREQ:9>%.6f", q->freq / 1000.0);
     fprintf(f, "<BAND:%zu>%s", strlen(q->band), q->band);
-
     fprintf(f, "<MODE:%zu>%s", strlen(q->mode), q->mode);
-
     fprintf(f, "<RST_SENT:%zu>%s", strlen(q->rst), q->rst);
-
     fprintf(f, "<RST_RCVD:%zu>%s", strlen(q->rst), q->rst);
 
     if (strlen(q->country)) {
@@ -62,6 +60,5 @@ int export_adif(const char *filename) {
   }
 
   fclose(f);
-
   return 0;
 }

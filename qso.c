@@ -1,5 +1,7 @@
 #include "qso.h"
 
+#include "db.h"
+
 QSO logbook[MAX_QSO];
 int qso_count = 0;
 
@@ -122,8 +124,14 @@ void detect_mode(int freq, char *mode) {
 
 void qso_init(void) {
   memset(logbook, 0, sizeof(logbook));
-
   qso_count = 0;
+
+  if (db_init() != 0)
+    return;
+
+  int loaded = 0;
+  if (db_load_qsos(logbook, MAX_QSO, NULL, &loaded) == 0)
+    qso_count = loaded;
 }
 
 /* ------------------------------------------------ */
@@ -172,29 +180,38 @@ int qso_add(const char *line, char *status, size_t status_size) {
 
   int f = atoi(freq);
 
-  QSO *q = &logbook[qso_count];
+  if (qso_count >= MAX_QSO) {
+    snprintf(status, status_size, "Logbook full");
+    return -1;
+  }
 
-  memset(q, 0, sizeof(QSO));
+  QSO q;
+  memset(&q, 0, sizeof(q));
 
-  strcpy(q->call, call);
-  strcpy(q->rst, rst);
-  q->freq = f;
+  strcpy(q.call, call);
+  strcpy(q.rst, rst);
+  q.freq = f;
 
-  detect_band(f, q->band);
-  detect_mode(f, q->mode);
+  detect_band(f, q.band);
+  detect_mode(f, q.mode);
 
-  fill_utc(q);
+  fill_utc(&q);
 
   const CtyEntry *cty = cty_lookup(call);
 
   if (cty) {
-    strncpy(q->country, cty->country, sizeof(q->country) - 1);
-    q->cq_zone = cty->cq_zone;
-    q->itu_zone = cty->itu_zone;
+    strncpy(q.country, cty->country, sizeof(q.country) - 1);
+    q.cq_zone = cty->cq_zone;
+    q.itu_zone = cty->itu_zone;
   } else {
-    strcpy(q->country, "UNKNOWN");
+    strcpy(q.country, "UNKNOWN");
   }
 
+  long long db_id = 0;
+  if (db_insert_qso(&q, &db_id) == 0)
+    q.db_id = db_id;
+
+  logbook[qso_count] = q;
   qso_count++;
 
   snprintf(status, status_size, "QSO OK");
@@ -211,4 +228,5 @@ void qso_mark_invalid(int index) {
     return;
 
   logbook[index].invalid = !logbook[index].invalid;
+  db_update_qso_invalid(logbook[index].db_id, logbook[index].invalid);
 }

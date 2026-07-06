@@ -11,6 +11,7 @@ The project now also supports an optional Qt frontend that uses the same control
 - Shows a dedicated callsign suggestions panel in the top-right corner with all matching history entries
 - Connects to a DXCluster server and shows received spots in the cluster window
 - Tracks simple statistics
+- Stores the QSO logbook and call history in SQLite
 - Exports log data to CSV and ADIF files
 
 ## Features
@@ -22,6 +23,7 @@ The project now also supports an optional Qt frontend that uses the same control
 - Invalid QSO marking for export exclusion
 - CSV/ADIF export support, including custom ADIF filename
 - One-key CTY database update from the internet
+- SQLite-backed logbook and call-history storage with `LOGGER_DB_PATH` override
 
 ## Requirements
 
@@ -167,8 +169,8 @@ While running the application, you can use these commands in the input line:
 
 ## Callsign suggestions
 
-When you start typing the first token (callsign), Logger checks `call_history.txt`
-and shows all matching callsigns in a separate window in the top-right corner.
+When you start typing the first token (callsign), Logger checks the SQLite-backed
+call history and shows all matching callsigns in a separate window in the top-right corner.
 
 - Suggestions are ordered by recency (newest first)
 - Use Up/Down arrows to select a different suggested callsign
@@ -181,6 +183,13 @@ and shows all matching callsigns in a separate window in the top-right corner.
 The program expects the DXCC database file named wl_cty.dat in the working directory or in the build directory.
 
 When F5 is used, wl_cty.dat is downloaded and replaced in the current working directory.
+
+The QSO logbook and call history are stored in `logger.db` by default. Set
+`LOGGER_DB_PATH` to point at a different SQLite file if you want to keep the
+database elsewhere. The first run imports existing `call_history.txt` entries
+into SQLite if the database is empty.
+
+`logger.conf` and `wl_cty.dat` remain text-based files.
 
 ## Notes
 

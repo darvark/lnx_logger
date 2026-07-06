@@ -7,6 +7,8 @@
 #define MAX_QSO 1000
 
 typedef struct {
+  long long db_id;
+
   char date[9];
   char utc[5];
 

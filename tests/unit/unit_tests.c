@@ -474,6 +474,10 @@ int main(void) {
     fprintf(stderr, "Cannot create temp dir: %s\n", strerror(errno));
     return 2;
   }
+  
+  char db_path[512];
+  snprintf(db_path, sizeof(db_path), "%s/unit.sqlite3", tmp_dir);
+  setenv("LOGGER_DB_PATH", db_path, 1);
 
   test_config_load(tmp_dir);
   test_cty_load_and_lookup(tmp_dir);

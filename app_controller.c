@@ -1,6 +1,7 @@
 #include "app_controller.h"
 
 #include "config.h"
+#include "db.h"
 #include "cty.h"
 #include "dxcluster.h"
 #include "export.h"
@@ -85,12 +86,7 @@ static void call_history_add_memory(const char *call) {
 }
 
 static void call_history_append_file(const char *call) {
-  FILE *f = fopen("call_history.txt", "a");
-  if (!f)
-    return;
-
-  fprintf(f, "%s\n", call);
-  fclose(f);
+  db_append_call_history(call);
 }
 
 static void call_history_record_from_input(const char *input) {
@@ -108,27 +104,11 @@ static void call_history_record_from_input(const char *input) {
 }
 
 static void call_history_load_file(const char *path) {
-  FILE *f = fopen(path, "r");
-  if (!f)
-    return;
+  (void)path;
 
-  char line[128];
-
-  while (fgets(line, sizeof(line), f)) {
-    size_t n = strlen(line);
-    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
-      line[n - 1] = 0;
-      n--;
-    }
-
-    for (size_t i = 0; line[i]; i++)
-      line[i] = (char)toupper((unsigned char)line[i]);
-
-    if (line[0])
-      call_history_add_memory(line);
-  }
-
-  fclose(f);
+  int count = 0;
+  db_load_call_history(call_history, MAX_CALL_HISTORY, &count);
+  call_history_count = count;
 }
 
 static void clear_callsign_suggestion(void) {
@@ -314,6 +294,8 @@ static void update_display_info(void) {
 int app_controller_init(void) {
   memset(input_buffer, 0, sizeof(input_buffer));
   input_len = 0;
+  memset(call_history, 0, sizeof(call_history));
+  call_history_count = 0;
 
   if (config_load("logger.conf") != 0)
     fprintf(stderr, "Cannot load logger.conf\n");
