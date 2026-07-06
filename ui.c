@@ -9,6 +9,7 @@ WINDOW *w_cluster = NULL;
 WINDOW *w_func = NULL;
 WINDOW *w_stats = NULL;
 WINDOW *w_suggest = NULL;
+WINDOW *w_gap = NULL;
 
 static int log_h;
 static int input_h;
@@ -19,6 +20,8 @@ static int stats_h;
 static int func_h;
 static int cluster_h;
 
+#define STATS_CLUSTER_GAP 1
+
 static void create_windows(void) {
   int rows, cols;
 
@@ -28,12 +31,13 @@ static void create_windows(void) {
   input_h = 3;
   status_h = 1;
   dxcc_h = 1;
-  info_h = 1;
-  stats_h = 2;
+  info_h = 0;
+  stats_h = 1;
   func_h = 1;
 
   cluster_h =
-      rows - log_h - input_h - status_h - dxcc_h - info_h - stats_h - func_h;
+      rows - log_h - input_h - status_h - dxcc_h - info_h - stats_h - func_h -
+      STATS_CLUSTER_GAP;
 
   if (cluster_h < 6)
     cluster_h = 6;
@@ -44,6 +48,7 @@ static void create_windows(void) {
   int y = 0;
 
   w_log = newwin(log_h, cols, y, 0);
+  wbkgd(w_log, COLOR_PAIR(5));
   y += log_h;
 
   w_input = newwin(input_h, cols, y, 0);
@@ -55,15 +60,20 @@ static void create_windows(void) {
   y += status_h;
 
   w_dxcc = newwin(dxcc_h, cols, y, 0);
+  wbkgd(w_dxcc, COLOR_PAIR(4));
   y += dxcc_h;
 
-  w_info = newwin(info_h, cols, y, 0);
-  y += info_h;
-
   w_stats = newwin(stats_h, cols, y, 0);
+  wbkgd(w_stats, COLOR_PAIR(4));
   y += stats_h;
 
+  w_gap = newwin(STATS_CLUSTER_GAP, cols, y, 0);
+  wbkgd(w_gap, COLOR_PAIR(5));
+
+  y += STATS_CLUSTER_GAP;
+
   w_cluster = newwin(cluster_h, cols, y, 0);
+  wbkgd(w_cluster, COLOR_PAIR(5));
   y += cluster_h;
 
   w_func = newwin(func_h, cols, y, 0);
@@ -83,6 +93,9 @@ static void create_windows(void) {
 
   if (suggest_w > 0)
     w_suggest = newwin(suggest_h, suggest_w, 0, cols - suggest_w);
+
+  if (w_suggest)
+    wbkgd(w_suggest, COLOR_PAIR(5));
 
   keypad(stdscr, TRUE);
   keypad(w_input, TRUE);
@@ -107,6 +120,8 @@ static void destroy_windows(void) {
     delwin(w_func);
   if (w_suggest)
     delwin(w_suggest);
+  if (w_gap)
+    delwin(w_gap);
 
   w_log = NULL;
   w_input = NULL;
@@ -117,6 +132,7 @@ static void destroy_windows(void) {
   w_cluster = NULL;
   w_func = NULL;
   w_suggest = NULL;
+  w_gap = NULL;
 }
 
 void ui_init(void) {
@@ -130,15 +146,19 @@ void ui_init(void) {
   if (has_colors()) {
     start_color();
 
-    init_pair(1, COLOR_CYAN, -1);
-    init_pair(2, COLOR_YELLOW, -1);
-    init_pair(3, COLOR_GREEN, COLOR_BLACK); // INPUT FIX
-    init_pair(4, COLOR_BLACK, COLOR_CYAN);
-    init_pair(5, COLOR_MAGENTA, -1);
-    init_pair(6, COLOR_RED, -1);
-    init_pair(7, COLOR_YELLOW, -1);
-    init_pair(8, COLOR_WHITE, COLOR_BLUE);
+    init_pair(1, COLOR_WHITE, COLOR_BLUE);
+    init_pair(2, COLOR_YELLOW, COLOR_BLUE);
+    init_pair(3, COLOR_BLACK, COLOR_CYAN);
+    init_pair(4, COLOR_WHITE, COLOR_BLUE);
+    init_pair(5, COLOR_WHITE, COLOR_CYAN);
+    init_pair(6, COLOR_YELLOW, COLOR_CYAN);
+    init_pair(7, COLOR_GREEN, COLOR_CYAN);
+    init_pair(8, COLOR_BLACK, COLOR_YELLOW);
+    init_pair(9, COLOR_BLUE, COLOR_CYAN);
+    init_pair(10, COLOR_BLACK, COLOR_YELLOW);
   }
+
+  bkgd(COLOR_PAIR(5));
 
   create_windows();
 
@@ -163,16 +183,30 @@ void ui_resize(void) {
 
 void draw_log(void) {
   werase(w_log);
+
+  wattron(w_log, COLOR_PAIR(9));
   box(w_log, 0, 0);
+  wattroff(w_log, COLOR_PAIR(9));
 
   wattron(w_log, COLOR_PAIR(1) | A_BOLD);
+  mvwhline(w_log, 0, 1, ' ', getmaxx(w_log) - 2);
 
-  mvwprintw(w_log, 0, 2, " QSO Log ");
+  const char *title = "QSO Log";
+  int cols = getmaxx(w_log);
+  int title_x = (cols - (int)strlen(title)) / 2;
+  if (title_x < 1)
+    title_x = 1;
+
+  mvwprintw(w_log, 0, title_x, "%s", title);
+
+  wattroff(w_log, COLOR_PAIR(1) | A_BOLD);
+
+  wattron(w_log, COLOR_PAIR(2) | A_BOLD);
 
   mvwprintw(w_log, 1, 1,
             "Nr Date     UTC  Call           Freq   Band Mode RST");
 
-  wattroff(w_log, COLOR_PAIR(1) | A_BOLD);
+  wattroff(w_log, COLOR_PAIR(2) | A_BOLD);
 
   int visible = getmaxy(w_log) - 3;
 
@@ -181,7 +215,9 @@ void draw_log(void) {
   int row = 2;
 
   if (qso_count == 0) {
+    wattron(w_log, COLOR_PAIR(5));
     mvwprintw(w_log, 2, 2, "No QSOs");
+    wattroff(w_log, COLOR_PAIR(5));
     return;
   }
 
@@ -205,7 +241,10 @@ void draw_input(const char *buf) {
 
   werase(w_input);
   wbkgd(w_input, COLOR_PAIR(input_pair));
+
+  wattron(w_input, COLOR_PAIR(1));
   box(w_input, 0, 0);
+  wattroff(w_input, COLOR_PAIR(1));
 
   wattron(w_input, COLOR_PAIR(input_pair) | A_BOLD);
 
@@ -218,8 +257,13 @@ void draw_input(const char *buf) {
 
 void draw_status(const char *text) {
   werase(w_status);
+  wbkgd(w_status, COLOR_PAIR(4));
+
+  wattron(w_status, COLOR_PAIR(4) | A_BOLD);
 
   mvwprintw(w_status, 0, 1, "Status: %s", text);
+
+  wattroff(w_status, COLOR_PAIR(4) | A_BOLD);
 }
 
 void draw_dxcc(const char *text) {
@@ -233,38 +277,62 @@ void draw_dxcc(const char *text) {
 }
 
 void draw_info(const char *text) {
-  werase(w_info);
+  if (!w_status)
+    return;
 
-  wattron(w_info, COLOR_PAIR(5));
+  char info_buf[256];
+  snprintf(info_buf, sizeof(info_buf), "Info: %s", text ? text : "");
 
-  mvwprintw(w_info, 0, 1, "Info: %s", text);
+  int cols = getmaxx(w_status);
+  int info_len = (int)strlen(info_buf);
+  int info_x = cols - info_len - 2;
+  if (info_x < cols / 2)
+    info_x = cols / 2;
 
-  wattroff(w_info, COLOR_PAIR(5));
+  wattron(w_status, COLOR_PAIR(4) | A_BOLD);
+  mvwprintw(w_status, 0, info_x, "%.*s", cols - info_x - 1, info_buf);
+  wattroff(w_status, COLOR_PAIR(4) | A_BOLD);
 }
 
 /* ------------------------------------------------ */
 
 void draw_stats(void) {
   werase(w_stats);
+  wbkgd(w_stats, COLOR_PAIR(4));
 
-  mvwprintw(w_stats, 0, 1, "QSO:%d DXCC:%d", stats.total_qso, stats.total_dxcc);
+  wattron(w_stats, COLOR_PAIR(4));
+  mvwhline(w_stats, 0, 0, ' ', getmaxx(w_stats));
+  wattroff(w_stats, COLOR_PAIR(4));
 
-  mvwprintw(w_stats, 1, 1, "CW:%d SSB:%d FT8:%d FT4:%d RTTY:%d PSK31:%d",
+  wattron(w_stats, COLOR_PAIR(2) | A_BOLD);
+  mvwprintw(w_stats, 0, 1,
+            "QSO:%d DXCC:%d  CW:%d SSB:%d FT8:%d FT4:%d RTTY:%d PSK31:%d",
+            stats.total_qso, stats.total_dxcc,
             stats.cw, stats.ssb, stats.ft8, stats.ft4, stats.rtty, stats.psk31);
+  wattroff(w_stats, COLOR_PAIR(2) | A_BOLD);
 }
 
 /* ------------------------------------------------ */
 
 void draw_cluster(void) {
   werase(w_cluster);
+
+  wattron(w_cluster, COLOR_PAIR(9));
   box(w_cluster, 0, 0);
+  wattroff(w_cluster, COLOR_PAIR(9));
 
   wattron(w_cluster, COLOR_PAIR(1) | A_BOLD);
+  mvwhline(w_cluster, 0, 1, ' ', getmaxx(w_cluster) - 2);
 
   mvwprintw(w_cluster, 0, 2, " DX Cluster ");
 
+  wattroff(w_cluster, COLOR_PAIR(1) | A_BOLD);
+
   pthread_mutex_lock(&dxcluster_mutex);
+
+  wattron(w_cluster, COLOR_PAIR(2) | A_BOLD);
   mvwprintw(w_cluster, 0, 18, "[%s]", dxcluster_status);
+  wattroff(w_cluster, COLOR_PAIR(2) | A_BOLD);
 
   int visible = getmaxy(w_cluster) - 2;
   if (visible < 1)
@@ -284,8 +352,6 @@ void draw_cluster(void) {
     wattroff(w_cluster, COLOR_PAIR(7) | A_BOLD);
   }
   pthread_mutex_unlock(&dxcluster_mutex);
-
-  wattroff(w_cluster, COLOR_PAIR(1) | A_BOLD);
 }
 
 /* ------------------------------------------------ */
@@ -298,9 +364,13 @@ void draw_suggestions(void) {
     return;
 
   werase(w_suggest);
+
+  wattron(w_suggest, COLOR_PAIR(9));
   box(w_suggest, 0, 0);
+  wattroff(w_suggest, COLOR_PAIR(9));
 
   wattron(w_suggest, COLOR_PAIR(1) | A_BOLD);
+  mvwhline(w_suggest, 0, 1, ' ', getmaxx(w_suggest) - 2);
   mvwprintw(w_suggest, 0, 2, " Call Suggestions ");
   wattroff(w_suggest, COLOR_PAIR(1) | A_BOLD);
 
@@ -312,12 +382,16 @@ void draw_suggestions(void) {
   for (int i = 0; i < call_suggestion_count && i < visible; i++) {
     if (i == call_suggestion_selected_index)
       wattron(w_suggest, COLOR_PAIR(8) | A_BOLD);
+    else
+      wattron(w_suggest, COLOR_PAIR(5));
 
     mvwprintw(w_suggest, i + 1, 2, "%-*.*s", content_w, content_w,
               call_suggestion_matches[i]);
 
     if (i == call_suggestion_selected_index)
       wattroff(w_suggest, COLOR_PAIR(8) | A_BOLD);
+    else
+      wattroff(w_suggest, COLOR_PAIR(5));
   }
 
 }
@@ -326,14 +400,21 @@ void draw_suggestions(void) {
 
 void draw_cluster_fullscreen(int scroll) {
   werase(stdscr);
+
+  wattron(stdscr, COLOR_PAIR(9));
   box(stdscr, 0, 0);
+  wattroff(stdscr, COLOR_PAIR(9));
 
   wattron(stdscr, COLOR_PAIR(1) | A_BOLD);
+  mvwhline(stdscr, 0, 1, ' ', getmaxx(stdscr) - 2);
   mvwprintw(stdscr, 0, 2, " DX Cluster Full View ");
   wattroff(stdscr, COLOR_PAIR(1) | A_BOLD);
 
   pthread_mutex_lock(&dxcluster_mutex);
+
+  wattron(stdscr, COLOR_PAIR(2) | A_BOLD);
   mvwprintw(stdscr, 0, 24, "[%s]", dxcluster_status);
+  wattroff(stdscr, COLOR_PAIR(2) | A_BOLD);
 
   int rows = getmaxy(stdscr);
   int visible = rows - 4;
@@ -360,9 +441,11 @@ void draw_cluster_fullscreen(int scroll) {
     wattroff(stdscr, COLOR_PAIR(7) | A_BOLD);
   }
 
+  wattron(stdscr, COLOR_PAIR(2) | A_BOLD);
   mvwprintw(stdscr, rows - 1, 1,
             "UP/DOWN scroll  PgUp/PgDn page  F4 return  %d/%d", scroll + 1,
             max_scroll + 1);
+  wattroff(stdscr, COLOR_PAIR(2) | A_BOLD);
 
   pthread_mutex_unlock(&dxcluster_mutex);
   refresh();
@@ -372,8 +455,9 @@ void draw_cluster_fullscreen(int scroll) {
 
 void draw_function_bar(void) {
   werase(w_func);
+  wbkgd(w_func, COLOR_PAIR(cty_update_in_progress ? 10 : 4));
 
-  wattron(w_func, A_REVERSE);
+  wattron(w_func, COLOR_PAIR(cty_update_in_progress ? 10 : 4) | A_BOLD);
 
   if (cty_update_in_progress) {
     mvwprintw(w_func, 0, 1,
@@ -384,7 +468,7 @@ void draw_function_bar(void) {
         "F1 Help  F2 Export  F3 Stats  F4 Cluster  F5 CTY update  F10 Quit");
   }
 
-  wattroff(w_func, A_REVERSE);
+  wattroff(w_func, COLOR_PAIR(cty_update_in_progress ? 10 : 4) | A_BOLD);
 }
 
 /* ------------------------------------------------ */
@@ -401,12 +485,16 @@ void draw_all(const char *input, const char *status, const char *dxcc,
   draw_function_bar();
   draw_suggestions();
 
+  if (w_gap)
+    werase(w_gap);
+
   wnoutrefresh(w_log);
   wnoutrefresh(w_input);
   wnoutrefresh(w_status);
   wnoutrefresh(w_dxcc);
-  wnoutrefresh(w_info);
   wnoutrefresh(w_stats);
+  if (w_gap)
+    wnoutrefresh(w_gap);
   wnoutrefresh(w_cluster);
   wnoutrefresh(w_func);
 
