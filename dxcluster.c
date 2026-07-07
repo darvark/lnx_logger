@@ -23,9 +23,15 @@ static FILE *dxcluster_log = NULL;
 static int running = 0;
 static pthread_t thread_id;
 struct sockaddr_in addr;
+static int stop_pipe[2] = {-1, -1};
 
 /* ------------------------------------------------ */
 
+/*
+ * Close the DXCluster traffic log if it is open.
+ *
+ * @return Nothing.
+ */
 static void dxcluster_close_log(void) {
   if (dxcluster_log) {
     fclose(dxcluster_log);
@@ -33,6 +39,128 @@ static void dxcluster_close_log(void) {
   }
 }
 
+/*
+ * Close both ends of the DXCluster shutdown pipe.
+ *
+ * @return Nothing.
+ */
+static void dxcluster_close_stop_pipe(void) {
+  if (stop_pipe[0] >= 0) {
+    close(stop_pipe[0]);
+    stop_pipe[0] = -1;
+  }
+
+  if (stop_pipe[1] >= 0) {
+    close(stop_pipe[1]);
+    stop_pipe[1] = -1;
+  }
+}
+
+/*
+ * Create the non-blocking stop pipe used to wake the worker thread.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
+static int dxcluster_create_stop_pipe(void) {
+  if (pipe(stop_pipe) < 0)
+    return -1;
+
+  for (int i = 0; i < 2; i++) {
+    int flags = fcntl(stop_pipe[i], F_GETFL, 0);
+    if (flags >= 0)
+      fcntl(stop_pipe[i], F_SETFL, flags | O_NONBLOCK);
+  }
+
+  return 0;
+}
+
+/*
+ * Wake the worker thread by writing a byte to the stop pipe.
+ *
+ * @return Nothing.
+ */
+static void dxcluster_signal_stop(void) {
+  if (stop_pipe[1] < 0)
+    return;
+
+  const unsigned char token = 1;
+  (void)write(stop_pipe[1], &token, 1);
+}
+
+/*
+ * Drain any pending bytes from the stop pipe.
+ *
+ * @return Nothing.
+ */
+static void dxcluster_drain_stop_pipe(void) {
+  if (stop_pipe[0] < 0)
+    return;
+
+  char buf[32];
+  while (read(stop_pipe[0], buf, sizeof(buf)) > 0)
+    ;
+}
+
+/*
+ * Wait for socket readiness or a stop request.
+ *
+ * @param sock Socket descriptor to monitor.
+ * @param want_write Nonzero to wait for writability, zero to wait for read.
+ * @param timeout_sec Timeout in seconds, or negative to wait indefinitely.
+ * @return 1 if the socket is ready, 0 on timeout, or -1 on stop/error.
+ */
+static int dxcluster_wait_for_socket(int sock, int want_write, int timeout_sec) {
+  fd_set rfds;
+  fd_set wfds;
+
+  FD_ZERO(&rfds);
+  FD_ZERO(&wfds);
+
+  FD_SET(stop_pipe[0], &rfds);
+  if (want_write)
+    FD_SET(sock, &wfds);
+  else
+    FD_SET(sock, &rfds);
+
+  int maxfd = sock > stop_pipe[0] ? sock : stop_pipe[0];
+
+  struct timeval tv;
+  struct timeval *ptv = NULL;
+  if (timeout_sec >= 0) {
+    tv.tv_sec = timeout_sec;
+    tv.tv_usec = 0;
+    ptv = &tv;
+  }
+
+  int rc = select(maxfd + 1, want_write ? NULL : &rfds,
+                  want_write ? &wfds : NULL, NULL, ptv);
+  if (rc <= 0)
+    return rc;
+
+  if (FD_ISSET(stop_pipe[0], &rfds)) {
+    dxcluster_drain_stop_pipe();
+    errno = ECANCELED;
+    return -1;
+  }
+
+  return want_write ? FD_ISSET(sock, &wfds) : FD_ISSET(sock, &rfds);
+}
+
+/*
+ * Sleep for a period while still responding to stop requests.
+ *
+ * @param timeout_sec Timeout in seconds.
+ * @return 1 if the timeout elapsed, 0 if interrupted, or -1 on stop/error.
+ */
+static int dxcluster_sleep_or_stop(int timeout_sec) {
+  return dxcluster_wait_for_socket(stop_pipe[0], 0, timeout_sec);
+}
+
+/*
+ * Open the DXCluster traffic log if needed.
+ *
+ * @return Nothing.
+ */
 static void dxcluster_open_log(void) {
   if (dxcluster_log)
     return;
@@ -50,6 +178,12 @@ static void dxcluster_open_log(void) {
   }
 }
 
+/*
+ * Append a raw DXCluster line to the traffic log.
+ *
+ * @param line Text to log.
+ * @return Nothing.
+ */
 static void dxcluster_log_line(const char *line) {
   if (!line)
     return;
@@ -67,6 +201,12 @@ static void dxcluster_log_line(const char *line) {
   }
 }
 
+/*
+ * Check whether a line looks like a DX de spot.
+ *
+ * @param line Input text.
+ * @return true if the line starts with DX de after whitespace, otherwise false.
+ */
 static bool dxcluster_line_is_dx_de(const char *line) {
   if (!line)
     return false;
@@ -77,6 +217,12 @@ static bool dxcluster_line_is_dx_de(const char *line) {
   return strncasecmp(line, "DX de", 5) == 0;
 }
 
+/*
+ * Parse and store a spot line in the circular buffer.
+ *
+ * @param line Raw cluster line.
+ * @return Nothing.
+ */
 static void add_spot(const char *line) {
   if (!line || !line[0])
     return;
@@ -146,6 +292,12 @@ static void add_spot(const char *line) {
   pthread_mutex_unlock(&dxcluster_mutex);
 }
 
+/*
+ * Update the shared DXCluster status string.
+ *
+ * @param text Status message to store.
+ * @return Nothing.
+ */
 void dxcluster_set_status(const char *text) {
   if (!text)
     return;
@@ -159,6 +311,12 @@ void dxcluster_set_status(const char *text) {
   pthread_mutex_unlock(&dxcluster_mutex);
 }
 
+/*
+ * Send the initial DXCluster command sequence after login.
+ *
+ * @param sock Connected socket descriptor.
+ * @return 0 on success, or -1 on failure.
+ */
 static int send_cluster_commands(int sock) {
   const char *cmds[] = {"set prompt off\r\n", "set/terse\r\n", "dx\r\n"};
 
@@ -172,6 +330,12 @@ static int send_cluster_commands(int sock) {
   return 0;
 }
 
+/*
+ * Send the configured login callsign to the DXCluster server.
+ *
+ * @param sock Connected socket descriptor.
+ * @return 0 on success, or -1 on failure.
+ */
 static int send_cluster_login_call(int sock) {
   if (!config.dxc_call[0])
     return 0;
@@ -186,6 +350,12 @@ static int send_cluster_login_call(int sock) {
   return 0;
 }
 
+/*
+ * Detect common login prompts in incoming cluster text.
+ *
+ * @param text Input buffer to inspect.
+ * @return true if the text resembles a login prompt, otherwise false.
+ */
 static bool looks_like_login_prompt(const char *text) {
   if (!text || !text[0])
     return false;
@@ -204,14 +374,25 @@ static bool looks_like_login_prompt(const char *text) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Worker thread that manages the DXCluster connection and spot feed.
+ *
+ * @param arg Unused thread argument.
+ * @return NULL when the thread exits.
+ */
 static void *cluster_thread(void *arg) {
   (void)arg;
 
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
   while (running) {
+    int sock = -1;
+
     dxcluster_set_status("Connecting...");
+    pthread_testcancel();
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-
+    sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
       dxcluster_set_status("Socket error");
       break;
@@ -222,46 +403,45 @@ static void *cluster_thread(void *arg) {
       fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
     dxcluster_set_status("Resolving host...");
+    pthread_testcancel();
 
     struct hostent *host = gethostbyname(config.dxc_host);
     if (!host) {
       dxcluster_set_status("DNS failed");
       close(sock);
-      sleep(5);
+      if (dxcluster_sleep_or_stop(5) < 0)
+        break;
       continue;
     }
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
-
     addr.sin_family = AF_INET;
     addr.sin_port = htons(config.dxc_port);
     memcpy(&addr.sin_addr, host->h_addr_list[0], host->h_length);
 
     dxcluster_set_status("Connecting to host...");
-
     if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
       if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
         dxcluster_set_status("Connect failed");
         close(sock);
-        sleep(1);
+        if (dxcluster_sleep_or_stop(1) < 0)
+          break;
         continue;
       }
     }
 
-    fd_set wfds;
-    FD_ZERO(&wfds);
-    FD_SET(sock, &wfds);
+    int sel = dxcluster_wait_for_socket(sock, 1, 30);
+    if (sel < 0) {
+      close(sock);
+      break;
+    }
 
-    struct timeval tv;
-    tv.tv_sec = 30;
-    tv.tv_usec = 0;
-
-    int sel = select(sock + 1, NULL, &wfds, NULL, &tv);
-    if (sel <= 0) {
+    if (sel == 0) {
       dxcluster_set_status("Connect timeout");
       close(sock);
-      sleep(1);
+      if (dxcluster_sleep_or_stop(1) < 0)
+        break;
       continue;
     }
 
@@ -271,18 +451,25 @@ static void *cluster_thread(void *arg) {
     if (so_error != 0) {
       dxcluster_set_status("Connect failed");
       close(sock);
-      sleep(1);
+      if (dxcluster_sleep_or_stop(1) < 0)
+        break;
       continue;
     }
 
     dxcluster_set_status("Connected");
 
     bool login_sent = config.dxc_call[0] ? false : true;
+    char buf[512];
+    char pending[1024] = {0};
+    size_t pending_len = 0;
+    int login_wait_loops = 0;
+
     if (login_sent) {
       if (send_cluster_commands(sock) < 0) {
         dxcluster_set_status("Init command send failed");
         close(sock);
-        sleep(1);
+        if (dxcluster_sleep_or_stop(1) < 0)
+          break;
         continue;
       }
 
@@ -291,26 +478,18 @@ static void *cluster_thread(void *arg) {
       dxcluster_set_status("Waiting for login prompt...");
     }
 
-    char buf[512];
-    char pending[1024] = {0};
-    size_t pending_len = 0;
-    int login_wait_loops = 0;
-
-    int n = 0;
-
     while (running) {
+      int n = 0;
+      int ready = dxcluster_wait_for_socket(sock, 0, -1);
+      if (ready < 0)
+        break;
+
       n = read(sock, buf, sizeof(buf));
+      if (n <= 0)
+        break;
 
-      if (n <= 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
-          break;
-        usleep(100000);
-        continue;
-      }
-
-      if ((size_t)n + pending_len >= sizeof(pending)) {
+      if ((size_t)n + pending_len >= sizeof(pending))
         pending_len = 0;
-      }
 
       memcpy(pending + pending_len, buf, (size_t)n);
       pending_len += (size_t)n;
@@ -360,11 +539,6 @@ static void *cluster_thread(void *arg) {
           continue;
         }
 
-        if (!login_sent) {
-          line_start = newline + 1;
-          continue;
-        }
-
         if (line[0] != '\0' && dxcluster_line_is_dx_de(line)) {
           add_spot(line);
           dxcluster_set_status("Spot received");
@@ -403,7 +577,8 @@ static void *cluster_thread(void *arg) {
       break;
 
     dxcluster_set_status("Reconnecting...");
-    usleep(1000000);
+    if (dxcluster_sleep_or_stop(1) < 0)
+      break;
   }
 
   if (!running)
@@ -414,11 +589,22 @@ static void *cluster_thread(void *arg) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Start the background DXCluster worker thread.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 int dxcluster_start(void) {
   running = 1;
 
+  if (stop_pipe[0] < 0 && dxcluster_create_stop_pipe() != 0) {
+    running = 0;
+    return -1;
+  }
+
   if (pthread_create(&thread_id, NULL, cluster_thread, NULL) != 0) {
     running = 0;
+    dxcluster_close_stop_pipe();
     return -1;
   }
 
@@ -427,8 +613,16 @@ int dxcluster_start(void) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Stop the background DXCluster worker thread and release its resources.
+ *
+ * @return Nothing.
+ */
 void dxcluster_stop(void) {
   running = 0;
+  dxcluster_signal_stop();
+  pthread_cancel(thread_id);
   pthread_join(thread_id, NULL);
   dxcluster_close_log();
+  dxcluster_close_stop_pipe();
 }

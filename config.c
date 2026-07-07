@@ -2,6 +2,12 @@
 
 Config config;
 
+/*
+ * Trim leading and trailing whitespace from a string in place.
+ *
+ * @param s String to trim.
+ * @return Nothing.
+ */
 static void trim(char *s) {
   if (!s)
     return;
@@ -21,6 +27,11 @@ static void trim(char *s) {
   }
 }
 
+/*
+ * Restore default configuration values.
+ *
+ * @return Nothing.
+ */
 static void set_defaults(void) {
   config.lat = 0.0;
   config.lon = 0.0;
@@ -34,6 +45,12 @@ static void set_defaults(void) {
   strcpy(config.dxc_call, "N0CALL");
 }
 
+/*
+ * Load configuration values from a logger.conf-style file.
+ *
+ * @param filename Path to the configuration file.
+ * @return 0 on success, or -1 if the file cannot be opened.
+ */
 int config_load(const char *filename) {
   set_defaults();
 

@@ -4,10 +4,25 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * Check whether a text buffer starts with a prefix.
+ *
+ * @param text Text to inspect.
+ * @param prefix Prefix to compare against.
+ * @param prefix_len Number of prefix characters to compare.
+ * @return 1 if the prefix matches, otherwise 0.
+ */
 static int starts_with(const char *text, const char *prefix, size_t prefix_len) {
   return strncmp(text, prefix, prefix_len) == 0;
 }
 
+/*
+ * Check whether a suggestion list already contains a callsign.
+ *
+ * @param list Candidate suggestion list.
+ * @param call Callsign to search for.
+ * @return 1 if the callsign exists, otherwise 0.
+ */
 static int contains_match(const CallSuggestionList *list, const char *call) {
   if (!list || !call)
     return 0;
@@ -20,6 +35,15 @@ static int contains_match(const CallSuggestionList *list, const char *call) {
   return 0;
 }
 
+/*
+ * Extract the first token from the input buffer and normalize it to upper case.
+ *
+ * @param input Raw input text.
+ * @param out Destination buffer for the extracted token.
+ * @param out_size Size of the destination buffer.
+ * @param token_len Optional output token length.
+ * @return 1 if a token was extracted, otherwise 0.
+ */
 static int extract_prefix_token(const char *input, char *out, size_t out_size,
                                 size_t *token_len) {
   if (!input || !out || out_size < 2)
@@ -60,6 +84,12 @@ static int extract_prefix_token(const char *input, char *out, size_t out_size,
   return 1;
 }
 
+/*
+ * Reset a suggestion list to its empty state.
+ *
+ * @param list List to clear.
+ * @return Nothing.
+ */
 void call_suggestion_list_clear(CallSuggestionList *list) {
   if (!list)
     return;
@@ -67,6 +97,15 @@ void call_suggestion_list_clear(CallSuggestionList *list) {
   memset(list, 0, sizeof(*list));
 }
 
+/*
+ * Rebuild suggestion matches from history for the current input token.
+ *
+ * @param list List to populate with matches.
+ * @param input Current input buffer.
+ * @param history History buffer to search.
+ * @param history_count Number of history entries.
+ * @return Nothing.
+ */
 void call_suggestion_refresh(CallSuggestionList *list, const char *input,
                              char history[][CALL_SUGGESTION_LEN],
                              int history_count) {
@@ -107,6 +146,12 @@ void call_suggestion_refresh(CallSuggestionList *list, const char *input,
   list->selected = 0;
 }
 
+/*
+ * Return the currently selected suggestion string.
+ *
+ * @param list Current suggestion list.
+ * @return Selected suggestion, or NULL if none is available.
+ */
 const char *call_suggestion_selected(const CallSuggestionList *list) {
   if (!list || list->count <= 0)
     return NULL;
@@ -117,6 +162,12 @@ const char *call_suggestion_selected(const CallSuggestionList *list) {
   return list->matches[list->selected];
 }
 
+/*
+ * Move the selection to the previous suggestion.
+ *
+ * @param list Current suggestion list.
+ * @return Nothing.
+ */
 void call_suggestion_select_prev(CallSuggestionList *list) {
   if (!list || list->count <= 0)
     return;
@@ -127,6 +178,12 @@ void call_suggestion_select_prev(CallSuggestionList *list) {
     list->selected--;
 }
 
+/*
+ * Move the selection to the next suggestion.
+ *
+ * @param list Current suggestion list.
+ * @return Nothing.
+ */
 void call_suggestion_select_next(CallSuggestionList *list) {
   if (!list || list->count <= 0)
     return;
@@ -136,6 +193,15 @@ void call_suggestion_select_next(CallSuggestionList *list) {
     list->selected = 0;
 }
 
+/*
+ * Apply the selected suggestion into an input buffer.
+ *
+ * @param list Current suggestion list.
+ * @param input Input buffer to modify.
+ * @param len Current input length, updated on success.
+ * @param input_capacity Capacity of the input buffer.
+ * @return 1 if a suggestion was applied, otherwise 0.
+ */
 int call_suggestion_apply(const CallSuggestionList *list, char *input, int *len,
                           size_t input_capacity) {
   if (!list || !input || !len || input_capacity < 2)

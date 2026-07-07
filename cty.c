@@ -12,6 +12,12 @@ static const char *CTY_URL = "https://www.country-files.com/cty/wl_cty.dat";
 
 /* ------------------------------------------------ */
 
+/*
+ * Check whether a system command exited successfully.
+ *
+ * @param status Return value from system().
+ * @return 1 if the command exited with status 0, otherwise 0.
+ */
 static int command_ok(int status) {
   if (status == -1)
     return 0;
@@ -24,6 +30,12 @@ static int command_ok(int status) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Download the latest CTY database and save it locally.
+ *
+ * @param filename Destination filename. If empty or NULL, wl_cty.dat is used.
+ * @return 0 on success, or -1 on failure.
+ */
 int cty_download_latest(const char *filename) {
   const char *target = (filename && filename[0]) ? filename : "wl_cty.dat";
   const char *tmp_file = "wl_cty.dat.tmp";
@@ -65,6 +77,12 @@ int cty_download_latest(const char *filename) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Trim leading and trailing whitespace from a token in place.
+ *
+ * @param s String to trim.
+ * @return Nothing.
+ */
 static void trim(char *s) {
   if (!s)
     return;
@@ -86,21 +104,69 @@ static void trim(char *s) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Check whether a callsign begins with a given prefix.
+ *
+ * @param call Callsign to test.
+ * @param prefix Prefix to match.
+ * @return 1 if the prefix matches, otherwise 0.
+ */
+/*
+ * Check whether a callsign begins with a given prefix.
+ *
+ * @param call Callsign to test.
+ * @param prefix Prefix to match.
+ * @return 1 if the prefix matches, otherwise 0.
+ */
 static int match_prefix(const char *call, const char *prefix) {
   return strncasecmp(call, prefix, strlen(prefix)) == 0;
 }
 
 /* ------------------------------------------------ */
 
+/*
+ * Add one country/prefix record to the in-memory CTY database.
+ *
+ * @param country Country name.
+ * @param prefix Prefix to store.
+ * @param cq CQ zone.
+ * @param itu ITU zone.
+ * @param lat Latitude.
+ * @param lon Longitude.
+ * @return Nothing.
+ */
+/*
+ * Add one country/prefix record to the in-memory CTY database.
+ *
+ * @param country Country name.
+ * @param prefix Prefix to store.
+ * @param cq CQ zone.
+ * @param itu ITU zone.
+ * @param lat Latitude.
+ * @param lon Longitude.
+ * @return Nothing.
+ */
 static void add_country_entry(const char *country, const char *prefix, int cq,
                               int itu, double lat, double lon) {
   if (!country || !prefix || !prefix[0])
     return;
 
   if (cty_count >= MAX_CTY)
+/*
+ * Load the CTY prefix database from disk.
+ *
+ * @param filename Preferred path to the database file.
+ * @return Number of parsed entries on success, or -1 on failure.
+ */
     return;
 
   CtyEntry *e = &cty_db[cty_count++];
+/*
+ * Find the best CTY match for a callsign prefix.
+ *
+ * @param callsign Callsign or prefix to search for.
+ * @return Pointer to the best matching entry, or NULL if none is found.
+ */
   memset(e, 0, sizeof(*e));
 
   strncpy(e->prefix, prefix, sizeof(e->prefix) - 1);
@@ -113,6 +179,12 @@ static void add_country_entry(const char *country, const char *prefix, int cq,
 
 /* ------------------------------------------------ */
 
+/*
+ * Load the CTY prefix database from disk.
+ *
+ * @param filename Preferred path to the database file.
+ * @return Number of parsed entries on success, or -1 on failure.
+ */
 int cty_load(const char *filename) {
   const char *candidates[] = {filename, "wl_cty.dat", "build/wl_cty.dat",
                               "./wl_cty.dat", "../wl_cty.dat"};
@@ -204,6 +276,12 @@ int cty_load(const char *filename) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Find the best CTY match for a callsign prefix.
+ *
+ * @param callsign Callsign or prefix to search for.
+ * @return Pointer to the best matching entry, or NULL if none is found.
+ */
 const CtyEntry *cty_lookup(const char *callsign) {
   if (!callsign)
     return NULL;

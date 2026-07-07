@@ -17,6 +17,12 @@ typedef struct {
 
 extern Config config;
 
+/*
+ * Load the logger configuration file into the global config structure.
+ *
+ * @param filename Path to the configuration file to read.
+ * @return 0 on success, or -1 if the file cannot be opened.
+ */
 int config_load(const char *filename);
 
 #endif

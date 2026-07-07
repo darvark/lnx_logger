@@ -2,6 +2,12 @@
 #include "db.h"
 #include "qso.h"
 
+/*
+ * Export the current logbook to CSV, using the database layer when available.
+ *
+ * @param filename Output file path.
+ * @return 0 on success, or -1 on failure.
+ */
 int export_csv(const char *filename) {
   if (db_export_csv(filename) == 0)
     return 0;
@@ -26,6 +32,12 @@ int export_csv(const char *filename) {
   return 0;
 }
 
+/*
+ * Export the current logbook to ADIF, using the database layer when available.
+ *
+ * @param filename Output file path.
+ * @return 0 on success, or -1 on failure.
+ */
 int export_adif(const char *filename) {
   if (db_export_adif(filename) == 0)
     return 0;

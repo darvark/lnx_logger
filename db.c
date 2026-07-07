@@ -52,6 +52,14 @@ static int set_previous_logbook_id(int id);
 static int get_previous_logbook_id(int *out_id);
 static int ensure_logbook_context(void);
 
+/*
+ * Bind a text value or SQL NULL-equivalent empty string.
+ *
+ * @param stmt SQLite statement to bind into.
+ * @param idx Parameter index.
+ * @param value Text value to bind, or empty/NULL for an empty string.
+ * @return SQLite status code from sqlite3_bind_text.
+ */
 static int bind_text_or_null(sqlite3_stmt *stmt, int idx, const char *value) {
   if (!value || !value[0])
     return sqlite3_bind_text(stmt, idx, "", -1, SQLITE_TRANSIENT);
@@ -59,6 +67,13 @@ static int bind_text_or_null(sqlite3_stmt *stmt, int idx, const char *value) {
   return sqlite3_bind_text(stmt, idx, value, -1, SQLITE_TRANSIENT);
 }
 
+/*
+ * Check whether a table has a specific column.
+ *
+ * @param table Table name.
+ * @param column Column name.
+ * @return 1 if the column exists, otherwise 0.
+ */
 static int table_has_column(const char *table, const char *column) {
   if (!table || !column || !table[0] || !column[0])
     return 0;
@@ -83,6 +98,12 @@ static int table_has_column(const char *table, const char *column) {
   return found;
 }
 
+/*
+ * Read the current logbook id from app metadata.
+ *
+ * @param out_id Destination for the logbook id.
+ * @return 0 on success, or -1 on failure.
+ */
 static int get_current_logbook_id(int *out_id) {
   if (!out_id)
     return -1;
@@ -90,6 +111,12 @@ static int get_current_logbook_id(int *out_id) {
   return meta_get_int("current_logbook_id", out_id);
 }
 
+/*
+ * Store the current logbook id in app metadata.
+ *
+ * @param id Logbook id to store.
+ * @return 0 on success, or -1 on failure.
+ */
 static int set_current_logbook_id(int id) {
   if (id <= 0)
     return -1;
@@ -97,6 +124,12 @@ static int set_current_logbook_id(int id) {
   return meta_set_int("current_logbook_id", id);
 }
 
+/*
+ * Read the previous logbook id from app metadata.
+ *
+ * @param out_id Destination for the logbook id.
+ * @return 0 on success, or -1 on failure.
+ */
 static int get_previous_logbook_id(int *out_id) {
   if (!out_id)
     return -1;
@@ -104,6 +137,12 @@ static int get_previous_logbook_id(int *out_id) {
   return meta_get_int("previous_logbook_id", out_id);
 }
 
+/*
+ * Store the previous logbook id in app metadata.
+ *
+ * @param id Logbook id to store.
+ * @return 0 on success, or -1 on failure.
+ */
 static int set_previous_logbook_id(int id) {
   if (id <= 0)
     return -1;
@@ -111,6 +150,11 @@ static int set_previous_logbook_id(int id) {
   return meta_set_int("previous_logbook_id", id);
 }
 
+/*
+ * Ensure that a valid active logbook exists.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 static int ensure_logbook_context(void) {
   int current_id = 0;
 
@@ -164,6 +208,12 @@ static int ensure_logbook_context(void) {
   return set_current_logbook_id(current_id);
 }
 
+/*
+ * Execute a raw SQL statement against the active database.
+ *
+ * @param sql SQL text to execute.
+ * @return SQLite status code.
+ */
 static int exec_sql(const char *sql) {
   char *err = NULL;
   int rc = sqlite3_exec(db, sql, NULL, NULL, &err);
@@ -173,14 +223,33 @@ static int exec_sql(const char *sql) {
   return rc;
 }
 
+/*
+ * Execute a SQL statement and normalize success to 0, failure to -1.
+ *
+ * @param sql SQL text to execute.
+ * @return 0 on success, or -1 on failure.
+ */
 static int exec_sql_checked(const char *sql) {
   return exec_sql(sql) == SQLITE_OK ? 0 : -1;
 }
 
+/*
+ * Prepare a SQLite statement against the active database.
+ *
+ * @param stmt Destination statement handle.
+ * @param sql SQL text to prepare.
+ * @return SQLite status code.
+ */
 static int prepare_stmt(sqlite3_stmt **stmt, const char *sql) {
   return sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
 }
 
+/*
+ * Import call-history text lines into the active logbook.
+ *
+ * @param path Path to the call-history text file.
+ * @return Number of imported entries, or -1 on failure.
+ */
 static int import_call_history_file_impl(const char *path) {
   int logbook_id = 1;
 
@@ -236,6 +305,11 @@ static int import_call_history_file_impl(const char *path) {
   return imported;
 }
 
+/*
+ * Open the SQLite database and create required schema on demand.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 static int ensure_open(void) {
   if (db)
     return 0;
@@ -377,6 +451,12 @@ static int ensure_open(void) {
   return 0;
 }
 
+/*
+ * Check whether a table contains any rows.
+ *
+ * @param table Table name.
+ * @return 1 if the table is empty, otherwise 0.
+ */
 static int table_is_empty(const char *table) {
   char sql[128];
   snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM %s;", table);
@@ -393,6 +473,13 @@ static int table_is_empty(const char *table) {
   return count == 0;
 }
 
+/*
+ * Read an integer value from the metadata table.
+ *
+ * @param key Metadata key.
+ * @param value Destination for the stored integer.
+ * @return 0 on success, or -1 on failure.
+ */
 static int meta_get_int(const char *key, int *value) {
   if (!key || !key[0] || !value)
     return -1;
@@ -413,10 +500,23 @@ static int meta_get_int(const char *key, int *value) {
   return -1;
 }
 
+/*
+ * Read the metadata flag that tracks whether a previous log is available.
+ *
+ * @param value Destination for the flag value.
+ * @return 0 on success, or -1 on failure.
+ */
 static int meta_get_previous_log_available(int *value) {
   return meta_get_int("previous_log_available", value);
 }
 
+/*
+ * Store an integer value in the metadata table.
+ *
+ * @param key Metadata key.
+ * @param value Integer value to store.
+ * @return 0 on success, or -1 on failure.
+ */
 static int meta_set_int(const char *key, int value) {
   if (!key || !key[0])
     return -1;
@@ -434,6 +534,11 @@ static int meta_set_int(const char *key, int value) {
   return rc == SQLITE_DONE ? 0 : -1;
 }
 
+/*
+ * Close the active database connection.
+ *
+ * @return Nothing.
+ */
 void db_shutdown(void) {
   if (db) {
     sqlite3_close(db);
@@ -443,6 +548,11 @@ void db_shutdown(void) {
   db_initialized = 0;
 }
 
+/*
+ * Initialize the database layer and open the SQLite database.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 int db_init(void) {
   if (db_initialized && db)
     return 0;
@@ -454,6 +564,15 @@ int db_init(void) {
   return 0;
 }
 
+/*
+ * Load QSO rows from the active logbook.
+ *
+ * @param logbook Destination array for QSO rows.
+ * @param max_qso Maximum number of rows to load.
+ * @param ids Optional destination array for database ids.
+ * @param out_count Optional output count of loaded rows.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_load_qsos(QSO *logbook, int max_qso, long long *ids, int *out_count) {
   if (out_count)
     *out_count = 0;
@@ -508,6 +627,13 @@ int db_load_qsos(QSO *logbook, int max_qso, long long *ids, int *out_count) {
   return 0;
 }
 
+/*
+ * Insert a QSO into the active logbook.
+ *
+ * @param qso QSO row to insert.
+ * @param out_id Optional destination for the inserted row id.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_insert_qso(const QSO *qso, long long *out_id) {
   if (out_id)
     *out_id = 0;
@@ -554,6 +680,13 @@ int db_insert_qso(const QSO *qso, long long *out_id) {
   return 0;
 }
 
+/*
+ * Update the invalid flag for a stored QSO row.
+ *
+ * @param id Row id to update.
+ * @param invalid Nonzero marks the row invalid.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_update_qso_invalid(long long id, int invalid) {
   if (id <= 0)
     return -1;
@@ -581,6 +714,14 @@ int db_update_qso_invalid(long long id, int invalid) {
   return rc == SQLITE_DONE ? 0 : -1;
 }
 
+/*
+ * Load call-history rows from the active logbook.
+ *
+ * @param history Destination array for call strings.
+ * @param max_history Maximum number of entries to load.
+ * @param out_count Optional output count of loaded entries.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_load_call_history(char history[][32], int max_history, int *out_count) {
   if (out_count)
     *out_count = 0;
@@ -620,6 +761,12 @@ int db_load_call_history(char history[][32], int max_history, int *out_count) {
   return 0;
 }
 
+/*
+ * Append a callsign to the call-history table for the active logbook.
+ *
+ * @param call Callsign to append.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_append_call_history(const char *call) {
   if (!call || !call[0])
     return -1;
@@ -645,6 +792,12 @@ int db_append_call_history(const char *call) {
   return rc == SQLITE_DONE ? 0 : -1;
 }
 
+/*
+ * Import call history from a file into the active logbook.
+ *
+ * @param path File path to import.
+ * @return Number of imported entries, or -1 on failure.
+ */
 int db_import_call_history_file(const char *path) {
   if (!path || !path[0])
     return -1;
@@ -655,6 +808,11 @@ int db_import_call_history_file(const char *path) {
   return import_call_history_file_impl(path);
 }
 
+/*
+ * Clear the active logbook's QSO and call-history rows.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 int db_clear_logbook(void) {
   if (db_init() != 0)
     return -1;
@@ -689,6 +847,14 @@ int db_clear_logbook(void) {
   return ok ? 0 : -1;
 }
 
+/*
+ * Copy rows from one table into another.
+ *
+ * @param src Source table.
+ * @param dst Destination table.
+ * @param columns Comma-separated column list to copy.
+ * @return 0 on success, or -1 on failure.
+ */
 static int copy_table(const char *src, const char *dst, const char *columns) {
   char sql[512];
 
@@ -704,6 +870,11 @@ static int copy_table(const char *src, const char *dst, const char *columns) {
   return exec_sql_checked(sql);
 }
 
+/*
+ * Archive the current logbook as the previous logbook reference.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 int db_archive_current_logbook(void) {
   if (db_init() != 0)
     return -1;
@@ -715,6 +886,11 @@ int db_archive_current_logbook(void) {
   return set_previous_logbook_id(current_id);
 }
 
+/*
+ * Open the previously archived named logbook.
+ *
+ * @return 0 on success, or -1 on failure.
+ */
 int db_open_previous_logbook(void) {
   if (db_init() != 0)
     return -1;
@@ -738,6 +914,12 @@ int db_open_previous_logbook(void) {
   return 0;
 }
 
+/*
+ * Check whether a named logbook id exists.
+ *
+ * @param id Logbook id to check.
+ * @return 1 if the named logbook exists, otherwise 0.
+ */
 static int named_logbook_exists(long long id) {
   sqlite3_stmt *stmt = NULL;
   if (prepare_stmt(&stmt, "SELECT 1 FROM named_logbooks WHERE id = ?;") !=
@@ -750,6 +932,12 @@ static int named_logbook_exists(long long id) {
   return found;
 }
 
+/*
+ * Archive the current logbook under a new named logbook entry.
+ *
+ * @param name Name to assign to the archived logbook.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_archive_current_logbook_named(const char *name) {
   if (!name || !name[0])
     return -1;
@@ -788,6 +976,14 @@ int db_archive_current_logbook_named(const char *name) {
   return 0;
 }
 
+/*
+ * List named logbooks and their QSO counts.
+ *
+ * @param out Destination array for logbook metadata.
+ * @param max_items Maximum number of items to return.
+ * @param out_count Optional output count of returned items.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_list_named_logbooks(DBNamedLogbook *out, int max_items, int *out_count) {
   if (out_count)
     *out_count = 0;
@@ -828,6 +1024,12 @@ int db_list_named_logbooks(DBNamedLogbook *out, int max_items, int *out_count) {
   return 0;
 }
 
+/*
+ * Open a named logbook by id.
+ *
+ * @param id Named logbook id to open.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_open_named_logbook_by_id(long long id) {
   if (id <= 0)
     return -1;
@@ -848,6 +1050,12 @@ int db_open_named_logbook_by_id(long long id) {
   return set_current_logbook_id((int)id);
 }
 
+/*
+ * Open a named logbook by name.
+ *
+ * @param name Logbook name to open.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_open_named_logbook_by_name(const char *name) {
   if (!name || !name[0])
     return -1;
@@ -875,6 +1083,14 @@ int db_open_named_logbook_by_name(const char *name) {
   return db_open_named_logbook_by_id(id);
 }
 
+/*
+ * Export query rows to either CSV or ADIF format.
+ *
+ * @param sql Query that selects QSO fields in export order.
+ * @param f Open output stream.
+ * @param adif_mode Nonzero to write ADIF, zero to write CSV.
+ * @return 0 on success, or -1 on failure.
+ */
 static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {
   sqlite3_stmt *stmt = NULL;
   if (prepare_stmt(&stmt, sql) != SQLITE_OK)
@@ -912,6 +1128,12 @@ static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {
   return 0;
 }
 
+/*
+ * Export the active logbook to CSV.
+ *
+ * @param filename Destination file path.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_export_csv(const char *filename) {
   FILE *f = fopen(filename, "w");
   if (!f)
@@ -942,6 +1164,12 @@ int db_export_csv(const char *filename) {
   return rc;
 }
 
+/*
+ * Export the active logbook to ADIF.
+ *
+ * @param filename Destination file path.
+ * @return 0 on success, or -1 on failure.
+ */
 int db_export_adif(const char *filename) {
   FILE *f = fopen(filename, "w");
   if (!f)

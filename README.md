@@ -12,7 +12,7 @@ The application uses shared controller/core logic, with Qt providing the user in
 - Records QSOs from the Qt desktop UI
 - Displays DXCC, CQ zone, and ITU zone information while typing a callsign
 - Shows a dedicated callsign suggestions panel in the top-right corner with all matching history entries
-- Connects to a DXCluster server and shows received spots in the cluster window
+- Connects to a DXCluster server, shows received spots in the cluster window, and stops the cluster worker cleanly when the app exits
 - Tracks simple statistics
 - Stores the QSO logbook and call history in SQLite
 - Exports log data to CSV and ADIF files
@@ -22,7 +22,7 @@ The application uses shared controller/core logic, with Qt providing the user in
 - QSO entry with frequency, RST, and mode detection
 - Callsign history suggestions with multi-match list view (top-right panel)
 - Local DXCC lookup from a CTY database
-- DXCluster status and spot display
+- DXCluster status and spot display, with a stop-safe shutdown path
 - Invalid QSO marking for export exclusion
 - CSV/ADIF export support, including custom ADIF filename
 - One-key CTY database update from the internet
@@ -167,6 +167,7 @@ While running the application, you can use these commands in the input line:
 - F5: toggle DXCluster fullscreen view
 - F6: recalculate statistics
 - F7: download the latest wl_cty.dat and reload CTY entries
+- F8: show or hide the bandmap sidebar on the right
 - F10: quit
 
 ## Callsign suggestions
@@ -198,3 +199,4 @@ into SQLite if the database is empty.
 - The application uses Qt Widgets, so it is intended for desktop environments.
 - DXCluster connectivity depends on the configured host, port, and network access.
 - If you want to use a different DXCluster server, update DXC_HOST and DXC_PORT in logger.conf.
+- Closing the application runs the shared shutdown path, which stops the DXCluster worker thread before the database is closed.

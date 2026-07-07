@@ -18,6 +18,11 @@ typedef struct {
 
 extern Statistics stats;
 
+/*
+ * Recalculate aggregate logbook statistics from the in-memory QSO list.
+ *
+ * @return Nothing.
+ */
 void stats_update(void);
 
 #endif

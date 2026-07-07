@@ -1,7 +1,9 @@
 #include <QApplication>
+#include <QCheckBox>
 #include <QFrame>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -18,6 +20,8 @@
 #include <QWidget>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -30,8 +34,55 @@ extern "C" {
 #include "stats.h"
 }
 
+namespace {
+constexpr std::array<const char *, 11> kBandLabels = {
+    "160M", "80M", "40M", "30M", "20M", "17M", "15M", "12M",
+    "10M", "6M", "2M"};
+
+/*
+ * Return the band index for a known band label.
+ *
+ * @param band Band label to search for.
+ * @return Zero-based index, or -1 if the band is unknown.
+ */
+int band_index(const char *band) {
+  if (!band)
+    return -1;
+
+  for (int i = 0; i < (int)kBandLabels.size(); i++) {
+    if (std::strcmp(band, kBandLabels[i]) == 0)
+      return i;
+  }
+
+  return -1;
+}
+
+/*
+ * Parse a spot frequency string into rounded kilohertz.
+ *
+ * @param freq_text Text representation of the frequency.
+ * @return Rounded kilohertz value, or 0 if the text cannot be parsed.
+ */
+int parse_spot_khz(const char *freq_text) {
+  if (!freq_text || !freq_text[0])
+    return 0;
+
+  char *end = nullptr;
+  const double value = std::strtod(freq_text, &end);
+  if (end == freq_text)
+    return 0;
+
+  return (int)std::lround(value);
+}
+} // namespace
+
 class LoggerQtWindow : public QMainWindow {
 public:
+  /*
+   * Build the main Qt window and wire up its widgets and timers.
+   *
+   * @return Nothing.
+   */
   LoggerQtWindow() {
     setWindowTitle("Logger (Qt)");
     resize(1300, 860);
@@ -40,9 +91,14 @@ public:
     QWidget *central = new QWidget(this);
     setCentralWidget(central);
 
-    auto *root = new QVBoxLayout(central);
+    auto *root = new QHBoxLayout(central);
     root->setContentsMargins(4, 4, 4, 4);
-    root->setSpacing(2);
+    root->setSpacing(4);
+
+    auto *left_column = new QWidget(central);
+    auto *left_layout = new QVBoxLayout(left_column);
+    left_layout->setContentsMargins(0, 0, 0, 0);
+    left_layout->setSpacing(2);
 
     log_group_ = new QGroupBox("QSO Log", central);
     log_group_->setObjectName("logGroup");
@@ -64,7 +120,7 @@ public:
     log_table_->horizontalHeader()->setStretchLastSection(false);
     log_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     log_layout->addWidget(log_table_);
-    root->addWidget(log_group_);
+    left_layout->addWidget(log_group_);
 
     suggestions_frame_ = new QFrame(log_group_);
     suggestions_frame_->setFrameShape(QFrame::StyledPanel);
@@ -94,7 +150,7 @@ public:
     input_layout->addWidget(input_edit_);
     input_label_->setWordWrap(false);
     input_edit_->setMinimumWidth(250);
-    root->addWidget(input_panel_);
+    left_layout->addWidget(input_panel_);
 
     status_panel_ = new QFrame(central);
     auto *status_layout = new QHBoxLayout(status_panel_);
@@ -105,7 +161,7 @@ public:
     info_label_->setWordWrap(false);
     status_layout->addWidget(status_label_, 1);
     status_layout->addWidget(info_label_, 1, Qt::AlignRight);
-    root->addWidget(status_panel_);
+    left_layout->addWidget(status_panel_);
 
     dxcc_panel_ = new QFrame(central);
     auto *dxcc_layout = new QHBoxLayout(dxcc_panel_);
@@ -113,7 +169,7 @@ public:
     dxcc_label_ = new QLabel(dxcc_panel_);
     dxcc_label_->setWordWrap(false);
     dxcc_layout->addWidget(dxcc_label_);
-    root->addWidget(dxcc_panel_);
+    left_layout->addWidget(dxcc_panel_);
 
     stats_panel_ = new QFrame(central);
     auto *stats_layout = new QHBoxLayout(stats_panel_);
@@ -121,11 +177,11 @@ public:
     stats_label_ = new QLabel(stats_panel_);
     stats_label_->setWordWrap(false);
     stats_layout->addWidget(stats_label_);
-    root->addWidget(stats_panel_);
+    left_layout->addWidget(stats_panel_);
 
     gap_panel_ = new QFrame(central);
     gap_panel_->setFixedHeight(10);
-    root->addWidget(gap_panel_);
+    left_layout->addWidget(gap_panel_);
 
     cluster_group_ = new QGroupBox("DX Cluster", central);
     cluster_group_->setObjectName("clusterGroup");
@@ -146,7 +202,50 @@ public:
     cluster_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     cluster_layout->addWidget(cluster_table_);
     cluster_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    root->addWidget(cluster_group_, 1);
+    left_layout->addWidget(cluster_group_, 1);
+
+    bandmap_group_ = new QGroupBox("Bandmap", central);
+    bandmap_group_->setObjectName("bandmapGroup");
+    auto *bandmap_layout = new QVBoxLayout(bandmap_group_);
+    bandmap_layout->setContentsMargins(6, 24, 6, 6);
+    bandmap_layout->setSpacing(4);
+
+    auto *bandmap_filters = new QFrame(bandmap_group_);
+    auto *bandmap_filters_layout = new QGridLayout(bandmap_filters);
+    bandmap_filters_layout->setContentsMargins(0, 0, 0, 0);
+    bandmap_filters_layout->setHorizontalSpacing(10);
+    bandmap_filters_layout->setVerticalSpacing(2);
+
+    for (int i = 0; i < (int)kBandLabels.size(); i++) {
+      bandmap_band_checks_[i] = new QCheckBox(kBandLabels[i], bandmap_filters);
+      bandmap_band_checks_[i]->setChecked(true);
+      connect(bandmap_band_checks_[i], &QCheckBox::toggled, this,
+              [this]() { refresh_ui(); });
+      bandmap_filters_layout->addWidget(bandmap_band_checks_[i], i / 4, i % 4);
+    }
+
+    bandmap_layout->addWidget(bandmap_filters);
+
+    bandmap_table_ = new QTableWidget(bandmap_group_);
+    bandmap_table_->setColumnCount(4);
+    bandmap_table_->setHorizontalHeaderLabels({"Band", "Freq", "Call", "Comment"});
+    bandmap_table_->verticalHeader()->setVisible(false);
+    bandmap_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    bandmap_table_->setSelectionMode(QAbstractItemView::NoSelection);
+    bandmap_table_->setFocusPolicy(Qt::NoFocus);
+    bandmap_table_->setShowGrid(false);
+    bandmap_table_->setWordWrap(false);
+    bandmap_table_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    bandmap_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    bandmap_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    bandmap_layout->addWidget(bandmap_table_);
+    bandmap_group_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    bandmap_group_->setMinimumWidth(360);
+    bandmap_group_->setMaximumWidth(430);
+    bandmap_group_->hide();
+
+    root->addWidget(left_column, 1);
+    root->addWidget(bandmap_group_, 0);
 
     function_panel_ = new QFrame(central);
     auto *function_layout = new QHBoxLayout(function_panel_);
@@ -154,7 +253,7 @@ public:
     function_label_ = new QLabel(function_panel_);
     function_label_->setWordWrap(false);
     function_layout->addWidget(function_label_);
-    root->addWidget(function_panel_);
+    left_layout->addWidget(function_panel_);
 
     apply_theme();
     apply_character_cell_layout();
@@ -167,12 +266,24 @@ public:
   }
 
 protected:
+  /*
+   * Recompute the character-cell layout after a window resize.
+   *
+   * @param event Resize event from Qt.
+   * @return Nothing.
+   */
   void resizeEvent(QResizeEvent *event) override {
     QMainWindow::resizeEvent(event);
     apply_character_cell_layout();
     place_suggestions_panel();
   }
 
+  /*
+   * Translate key presses into controller actions.
+   *
+   * @param event Key event from Qt.
+   * @return Nothing.
+   */
   void keyPressEvent(QKeyEvent *event) override {
     if (event->key() == Qt::Key_F2) {
       prompt_create_named_log();
@@ -316,6 +427,8 @@ private:
       return APP_KEY_F6;
     case Qt::Key_F7:
       return APP_KEY_F7;
+    case Qt::Key_F8:
+      return APP_KEY_F8;
     case Qt::Key_F10:
       return APP_KEY_F10;
     case Qt::Key_Up:
@@ -383,6 +496,10 @@ private:
     suggestions_frame_->setStyleSheet(
         "QFrame { background: #95dceb; border: 1px solid #0e6a85; }"
         "QLabel#suggestTitle { background: #0f5ea4; color: #f4f8ff; padding: 2px 6px; font-weight: bold; }");
+    bandmap_group_->setStyleSheet(
+      "QGroupBox#bandmapGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
+      " color: #f4f8ff; background: #0f5ea4; }"
+      "QCheckBox { color: #0d2d3b; font-weight: bold; }");
   }
 
   int cols_to_px(int cols, int padding = 10) const {
@@ -425,6 +542,8 @@ private:
     log_table_->horizontalHeader()->setFixedHeight(header_h);
     cluster_table_->verticalHeader()->setDefaultSectionSize(row_h);
     cluster_table_->horizontalHeader()->setFixedHeight(header_h);
+    bandmap_table_->verticalHeader()->setDefaultSectionSize(row_h);
+    bandmap_table_->horizontalHeader()->setFixedHeight(header_h);
 
     const int log_col_chars[8] = {3, 9, 5, 15, 6, 5, 5, 4};
     for (int i = 0; i < 8; i++) {
@@ -437,6 +556,11 @@ private:
     cluster_table_->setColumnWidth(0, cols_to_px(cluster_col_chars[0]));
     cluster_table_->setColumnWidth(1, cols_to_px(cluster_col_chars[1]));
     cluster_table_->setColumnWidth(2, cols_to_px(cluster_col_chars[2]));
+
+    const int bandmap_col_chars[4] = {5, 11, 13, 24};
+    bandmap_table_->setColumnWidth(0, cols_to_px(bandmap_col_chars[0]));
+    bandmap_table_->setColumnWidth(1, cols_to_px(bandmap_col_chars[1]));
+    bandmap_table_->setColumnWidth(2, cols_to_px(bandmap_col_chars[2]));
 
     log_group_->setMinimumHeight((12 + 3) * row_h + 26);
 
@@ -595,6 +719,90 @@ private:
     return max_scroll;
   }
 
+  void refresh_bandmap_table() {
+    struct BandSpotCopy {
+      int freq_khz;
+      QString band;
+      QString freq;
+      QString call;
+      QString comment;
+    };
+
+    bool band_enabled[(int)kBandLabels.size()];
+    for (int i = 0; i < (int)kBandLabels.size(); i++)
+      band_enabled[i] = bandmap_band_checks_[i] && bandmap_band_checks_[i]->isChecked();
+
+    std::vector<BandSpotCopy> items;
+    QString status;
+
+    pthread_mutex_lock(&dxcluster_mutex);
+    status = dxcluster_status;
+
+    const int count = spot_count;
+    items.reserve(count);
+    for (int i = 0; i < count; i++) {
+      const int idx = (spot_start + i) % MAX_SPOTS;
+      const int freq_khz = parse_spot_khz(spots[idx].freq);
+      if (freq_khz <= 0)
+        continue;
+
+      char band[8] = {0};
+      detect_band(freq_khz, band);
+      const int band_idx = band_index(band);
+      if (band_idx < 0 || !band_enabled[band_idx])
+        continue;
+
+      items.push_back({freq_khz, band, spots[idx].freq, spots[idx].call,
+                       spots[idx].comment});
+    }
+    pthread_mutex_unlock(&dxcluster_mutex);
+
+    std::sort(items.begin(), items.end(), [](const BandSpotCopy &a, const BandSpotCopy &b) {
+      if (a.freq_khz != b.freq_khz)
+        return a.freq_khz < b.freq_khz;
+      if (a.band != b.band)
+        return a.band < b.band;
+      return a.call < b.call;
+    });
+
+    bandmap_group_->setTitle(QString("Bandmap [%1]").arg(status));
+    bandmap_table_->clearSpans();
+
+    if (items.empty()) {
+      bandmap_table_->setRowCount(1);
+      auto *item = new QTableWidgetItem("No spots for selected bands");
+      item->setTextAlignment(Qt::AlignCenter);
+      bandmap_table_->setSpan(0, 0, 1, bandmap_table_->columnCount());
+      bandmap_table_->setItem(0, 0, item);
+      return;
+    }
+
+    bandmap_table_->setRowCount((int)items.size());
+    for (int row = 0; row < (int)items.size(); row++) {
+      auto *band_item = new QTableWidgetItem(items[row].band);
+      auto *freq_item = new QTableWidgetItem(items[row].freq);
+      auto *call_item = new QTableWidgetItem(items[row].call);
+      auto *comment_item = new QTableWidgetItem(items[row].comment);
+
+      band_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+      freq_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+      call_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+      comment_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+
+      band_item->setForeground(QColor(14, 90, 20));
+      freq_item->setForeground(QColor(14, 90, 20));
+      call_item->setForeground(QColor(14, 90, 20));
+      comment_item->setForeground(QColor(14, 90, 20));
+
+      bandmap_table_->setItem(row, 0, band_item);
+      bandmap_table_->setItem(row, 1, freq_item);
+      bandmap_table_->setItem(row, 2, call_item);
+      bandmap_table_->setItem(row, 3, comment_item);
+    }
+
+    bandmap_table_->scrollToTop();
+  }
+
   void refresh_suggestions() {
     if (!call_suggestion_available || call_suggestion_count <= 0) {
       suggestions_frame_->hide();
@@ -618,6 +826,11 @@ private:
     }
   }
 
+  /*
+   * Pull the latest controller state into the Qt widgets.
+   *
+   * @return Nothing.
+   */
   void refresh_ui() {
     AppRenderState state;
     app_controller_get_render_state(&state);
@@ -661,7 +874,7 @@ private:
           "QFrame { background: #f3d24f; color: #111; font-weight: bold; }");
     } else {
         function_label_->setText(clip_to_cols(
-      "F1 Help | F2 New Named Log | F3 Open Log | F4 Export Log | F5 DXCluster | F6 Statistics | F7 Update CTY | F10 Quit",
+      "F1 Help | F2 New Named Log | F3 Open Log | F4 Export Log | F5 DXCluster | F6 Statistics | F7 Update CTY | F8 Bandmap | F10 Quit",
           std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #0f5ea4; color: #f4f8ff; font-weight: bold; }");
@@ -669,16 +882,20 @@ private:
 
     refresh_log_table();
     const int max_scroll = refresh_cluster_table(state.cluster_view, state.cluster_scroll);
+    refresh_bandmap_table();
     refresh_suggestions();
 
     const bool fullscreen_cluster = state.cluster_view;
-    log_group_->setVisible(!fullscreen_cluster);
-    input_panel_->setVisible(!fullscreen_cluster);
-    status_panel_->setVisible(!fullscreen_cluster);
-    dxcc_panel_->setVisible(!fullscreen_cluster);
-    stats_panel_->setVisible(!fullscreen_cluster);
-    gap_panel_->setVisible(!fullscreen_cluster);
-    suggestions_frame_->setVisible(!fullscreen_cluster && call_suggestion_available);
+    const bool hide_main = fullscreen_cluster;
+    log_group_->setVisible(!hide_main);
+    input_panel_->setVisible(!hide_main);
+    status_panel_->setVisible(!hide_main);
+    dxcc_panel_->setVisible(!hide_main);
+    stats_panel_->setVisible(!hide_main);
+    gap_panel_->setVisible(!hide_main);
+    suggestions_frame_->setVisible(!hide_main && call_suggestion_available);
+    cluster_group_->setVisible(true);
+    bandmap_group_->setVisible(state.bandmap_view && !fullscreen_cluster);
 
     if (fullscreen_cluster) {
       const int display_scroll = std::clamp(state.cluster_scroll, 0, max_scroll);
@@ -717,6 +934,10 @@ private:
   QGroupBox *cluster_group_ = nullptr;
   QTableWidget *cluster_table_ = nullptr;
 
+  QGroupBox *bandmap_group_ = nullptr;
+  QTableWidget *bandmap_table_ = nullptr;
+  std::array<QCheckBox *, kBandLabels.size()> bandmap_band_checks_{};
+
   QFrame *function_panel_ = nullptr;
   QLabel *function_label_ = nullptr;
 
@@ -724,6 +945,13 @@ private:
   int cell_h_ = 16;
 };
 
+/*
+ * Start the Qt frontend application.
+ *
+ * @param argc Command-line argument count.
+ * @param argv Command-line argument vector.
+ * @return Qt application exit code.
+ */
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
 

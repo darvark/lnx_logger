@@ -5,6 +5,14 @@
 #define DEG2RAD(x) ((x) * M_PI / 180.0)
 #define RAD2DEG(x) ((x) * 180.0 / M_PI)
 
+/*
+ * Convert a Maidenhead locator to latitude and longitude.
+ *
+ * @param locator Maidenhead grid locator string.
+ * @param lat Output latitude in degrees.
+ * @param lon Output longitude in degrees.
+ * @return 0 on success, or -1 on invalid input.
+ */
 int locator_to_latlon(const char *locator, double *lat, double *lon) {
   if (!locator || !lat || !lon)
     return -1;

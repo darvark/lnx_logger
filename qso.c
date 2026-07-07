@@ -7,6 +7,12 @@ int qso_count = 0;
 
 /* ------------------------------------------------ */
 
+/*
+ * Validate a callsign for the QSO parser.
+ *
+ * @param call Callsign text.
+ * @return 1 if the callsign is acceptable, otherwise 0.
+ */
 static int validate_callsign(const char *call) {
   if (!call)
     return 0;
@@ -19,7 +25,7 @@ static int validate_callsign(const char *call) {
   int has_digit = 0;
 
   for (size_t i = 0; i < len; i++) {
-    char c = toupper(call[i]);
+    char c = toupper((unsigned char)call[i]);
 
     if (isdigit((unsigned char)c))
       has_digit = 1;
@@ -33,6 +39,12 @@ static int validate_callsign(const char *call) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Validate a frequency range for a QSO entry.
+ *
+ * @param freq Frequency in kHz.
+ * @return 1 if the frequency is within range, otherwise 0.
+ */
 static int validate_frequency(int freq) {
   if (freq < 1000)
     return 0;
@@ -45,6 +57,12 @@ static int validate_frequency(int freq) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Validate the signal report field for a QSO entry.
+ *
+ * @param rst Signal report text.
+ * @return 1 if the report is well formed, otherwise 0.
+ */
 static int validate_rst(const char *rst) {
   if (!rst)
     return 0;
@@ -64,46 +82,49 @@ static int validate_rst(const char *rst) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Map a frequency in kHz to a band label.
+ *
+ * @param freq Frequency in kHz.
+ * @param band Destination buffer for the band label.
+ * @return Nothing.
+ */
 void detect_band(int freq, char *band) {
   if (freq >= 1800 && freq <= 2000)
     strcpy(band, "160M");
-
   else if (freq >= 3500 && freq <= 4000)
     strcpy(band, "80M");
-
   else if (freq >= 7000 && freq <= 7300)
     strcpy(band, "40M");
-
   else if (freq >= 10100 && freq <= 10150)
     strcpy(band, "30M");
-
   else if (freq >= 14000 && freq <= 14350)
     strcpy(band, "20M");
-
   else if (freq >= 18068 && freq <= 18168)
     strcpy(band, "17M");
-
   else if (freq >= 21000 && freq <= 21450)
     strcpy(band, "15M");
-
   else if (freq >= 24890 && freq <= 24990)
     strcpy(band, "12M");
-
   else if (freq >= 28000 && freq <= 29700)
     strcpy(band, "10M");
-
   else if (freq >= 50000 && freq <= 54000)
     strcpy(band, "6M");
-
   else if (freq >= 144000 && freq <= 148000)
     strcpy(band, "2M");
-
   else
     strcpy(band, "?");
 }
 
 /* ------------------------------------------------ */
 
+/*
+ * Infer the operating mode from a frequency in kHz.
+ *
+ * @param freq Frequency in kHz.
+ * @param mode Destination buffer for the mode label.
+ * @return Nothing.
+ */
 void detect_mode(int freq, char *mode) {
   if (freq == 14074 || freq == 7074 || freq == 3573 || freq == 21074) {
     strcpy(mode, "FT8");
@@ -122,6 +143,11 @@ void detect_mode(int freq, char *mode) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Load the current logbook from the database into memory.
+ *
+ * @return Nothing.
+ */
 void qso_init(void) {
   memset(logbook, 0, sizeof(logbook));
   qso_count = 0;
@@ -136,18 +162,31 @@ void qso_init(void) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Fill a QSO record with the current UTC date and time.
+ *
+ * @param q QSO record to update.
+ * @return Nothing.
+ */
 static void fill_utc(QSO *q) {
   time_t t = time(NULL);
 
   struct tm *utc = gmtime(&t);
 
   strftime(q->date, sizeof(q->date), "%Y%m%d", utc);
-
   strftime(q->utc, sizeof(q->utc), "%H%M", utc);
 }
 
 /* ------------------------------------------------ */
 
+/*
+ * Parse, validate, and store one QSO entry.
+ *
+ * @param line Input line containing call, frequency, and RST fields.
+ * @param status Destination buffer for a status message.
+ * @param status_size Size of the status buffer in bytes.
+ * @return Index of the inserted QSO, or -1 on failure.
+ */
 int qso_add(const char *line, char *status, size_t status_size) {
   if (!line)
     return -1;
@@ -167,7 +206,7 @@ int qso_add(const char *line, char *status, size_t status_size) {
   }
 
   for (int i = 0; call[i]; i++)
-    call[i] = toupper(call[i]);
+    call[i] = toupper((unsigned char)call[i]);
 
   char *p = strchr(call, '/');
   if (p)
@@ -220,6 +259,12 @@ int qso_add(const char *line, char *status, size_t status_size) {
 
 /* ------------------------------------------------ */
 
+/*
+ * Toggle the invalid flag for a QSO row.
+ *
+ * @param index Zero-based index into the in-memory logbook.
+ * @return Nothing.
+ */
 void qso_mark_invalid(int index) {
   if (index < 0)
     return;

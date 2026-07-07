@@ -35,6 +35,7 @@ static int call_history_count = 0;
 static CallSuggestionList call_suggestions;
 
 static bool cluster_view = false;
+static bool bandmap_view = false;
 static int cluster_scroll = 0;
 static bool export_prompt_mode = false;
 
@@ -42,6 +43,14 @@ static bool export_prompt_mode = false;
 
 static void sync_callsign_suggestion_state(void);
 
+/*
+ * Extract the first callsign-like token from an input string.
+ *
+ * @param input Source text to scan.
+ * @param out Destination buffer for the token.
+ * @param out_size Size of the destination buffer.
+ * @return 1 if a token was extracted, otherwise 0.
+ */
 static int extract_callsign_token(const char *input, char *out, size_t out_size) {
   if (!input || !out || out_size < 2)
     return 0;
@@ -73,6 +82,12 @@ static int extract_callsign_token(const char *input, char *out, size_t out_size)
   return 1;
 }
 
+/*
+ * Keep the in-memory call history buffer up to date.
+ *
+ * @param call Callsign to append.
+ * @return Nothing.
+ */
 static void call_history_add_memory(const char *call) {
   if (!call || !call[0])
     return;
@@ -89,10 +104,22 @@ static void call_history_add_memory(const char *call) {
            call);
 }
 
+/*
+ * Append a callsign to the persistent call-history store.
+ *
+ * @param call Callsign to append.
+ * @return Nothing.
+ */
 static void call_history_append_file(const char *call) {
   db_append_call_history(call);
 }
 
+/*
+ * Record a completed input line as call history when it contains a callsign.
+ *
+ * @param input Raw input line.
+ * @return Nothing.
+ */
 static void call_history_record_from_input(const char *input) {
   char call[32];
 
@@ -110,6 +137,12 @@ static void call_history_record_from_input(const char *input) {
   call_history_append_file(call);
 }
 
+/*
+ * Reload call history from the database-backed store.
+ *
+ * @param path Unused compatibility parameter.
+ * @return Nothing.
+ */
 static void call_history_load_file(const char *path) {
   (void)path;
 
@@ -118,6 +151,11 @@ static void call_history_load_file(const char *path) {
   call_history_count = count;
 }
 
+/*
+ * Clear the active suggestion list and cached suggestion state.
+ *
+ * @return Nothing.
+ */
 static void clear_callsign_suggestion(void) {
   call_suggestion_list_clear(&call_suggestions);
   call_suggestion_available = 0;
@@ -128,6 +166,11 @@ static void clear_callsign_suggestion(void) {
     call_suggestion_matches[i][0] = 0;
 }
 
+/*
+ * Reset all state associated with the currently loaded logbook.
+ *
+ * @return Nothing.
+ */
 static void reset_loaded_log_state(void) {
   qso_init();
   call_history_load_file("call_history.txt");
@@ -145,6 +188,12 @@ static void reset_loaded_log_state(void) {
   stats_update();
 }
 
+/*
+ * Check whether a string contains only decimal digits.
+ *
+ * @param s Input string.
+ * @return 1 if the string is non-empty and numeric, otherwise 0.
+ */
 static int is_digits_only(const char *s) {
   if (!s || !s[0])
     return 0;
@@ -157,6 +206,12 @@ static int is_digits_only(const char *s) {
   return 1;
 }
 
+/*
+ * Trim leading and trailing whitespace from a string in place.
+ *
+ * @param s String to trim.
+ * @return Nothing.
+ */
 static void trim_whitespace_in_place(char *s) {
   if (!s)
     return;
@@ -175,6 +230,11 @@ static void trim_whitespace_in_place(char *s) {
     memmove(s, s + start, strlen(s + start) + 1);
 }
 
+/*
+ * Archive the current logbook, clear it, and reset UI state.
+ *
+ * @return Nothing.
+ */
 static void create_new_clean_log(void) {
   if (db_archive_current_logbook() != 0 || db_clear_logbook() != 0) {
     snprintf(status_text, sizeof(status_text), "New log failed");
@@ -185,6 +245,12 @@ static void create_new_clean_log(void) {
   snprintf(status_text, sizeof(status_text), "New clean log created");
 }
 
+/*
+ * Archive the current logbook under a name and reset UI state.
+ *
+ * @param name Optional logbook name.
+ * @return Nothing.
+ */
 static void create_new_named_log(const char *name) {
   if (!name || !name[0]) {
     create_new_clean_log();
@@ -200,6 +266,11 @@ static void create_new_named_log(const char *name) {
   snprintf(status_text, sizeof(status_text), "New log created: %s", name);
 }
 
+/*
+ * Reopen the previously archived logbook.
+ *
+ * @return Nothing.
+ */
 static void open_previous_log(void) {
   if (db_open_previous_logbook() != 0) {
     snprintf(status_text, sizeof(status_text), "No previous log available");
@@ -210,6 +281,11 @@ static void open_previous_log(void) {
   snprintf(status_text, sizeof(status_text), "Previous log opened");
 }
 
+/*
+ * Format the list of named logbooks into the status area.
+ *
+ * @return Nothing.
+ */
 static void list_named_logs(void) {
   DBNamedLogbook items[NAMED_LOG_LIST_MAX];
   int count = 0;
@@ -247,6 +323,12 @@ static void list_named_logs(void) {
            "Named logs: %d (use openlog <id|name>)", count);
 }
 
+/*
+ * Open a named logbook by id or name selector.
+ *
+ * @param selector Logbook id or name.
+ * @return Nothing.
+ */
 static void open_named_log_selector(const char *selector) {
   if (!selector || !selector[0]) {
     snprintf(status_text, sizeof(status_text), "Usage: openlog <id|name>");
@@ -270,6 +352,12 @@ static void open_named_log_selector(const char *selector) {
   snprintf(status_text, sizeof(status_text), "Log opened: %s", selector);
 }
 
+/*
+ * Refresh call suggestions for the current input buffer.
+ *
+ * @param input Input buffer to analyze.
+ * @return Nothing.
+ */
 static void refresh_callsign_suggestion(const char *input) {
   clear_callsign_suggestion();
 
@@ -278,11 +366,23 @@ static void refresh_callsign_suggestion(const char *input) {
   sync_callsign_suggestion_state();
 }
 
+/*
+ * Apply the currently selected callsign suggestion to the input buffer.
+ *
+ * @param input Input buffer to modify.
+ * @param len Current input length, updated on success.
+ * @return 1 if a suggestion was applied, otherwise 0.
+ */
 static int apply_callsign_suggestion(char *input, int *len) {
   return call_suggestion_apply(&call_suggestions, input, len,
                                sizeof(input_buffer));
 }
 
+/*
+ * Synchronize public suggestion state from the internal suggestion list.
+ *
+ * @return Nothing.
+ */
 static void sync_callsign_suggestion_state(void) {
   call_suggestion_count = call_suggestions.count;
   call_suggestion_selected_index = call_suggestions.selected;
@@ -297,6 +397,12 @@ static void sync_callsign_suggestion_state(void) {
   }
 }
 
+/*
+ * Export the current logbook to ADIF using an explicit filename.
+ *
+ * @param adif_file Destination ADIF filename.
+ * @return 0 on success, or -1 on failure.
+ */
 static int export_with_adif_filename(const char *adif_file) {
   const char *default_csv = "log.csv";
 
@@ -314,6 +420,12 @@ static int export_with_adif_filename(const char *adif_file) {
   return 0;
 }
 
+/*
+ * Parse an export command and choose the ADIF destination filename.
+ *
+ * @param cmd Raw command line.
+ * @return 0 on success, or -1 on failure.
+ */
 static int export_with_optional_adif(const char *cmd) {
   const char *default_adif = "log.adi";
   const char *adif_file = default_adif;
@@ -339,6 +451,12 @@ static int export_with_optional_adif(const char *cmd) {
   return export_with_adif_filename(adif_file);
 }
 
+/*
+ * Handle a typed command line entered into the controller.
+ *
+ * @param cmd Raw command text.
+ * @return 1 if the input was treated as a command, otherwise 0.
+ */
 static int process_command(const char *cmd) {
   char command[32] = {0};
   char arg[192] = {0};
@@ -408,6 +526,12 @@ static int process_command(const char *cmd) {
   return 0;
 }
 
+/*
+ * Update the DXCC display state based on the current input text.
+ *
+ * @param input Current input buffer.
+ * @return Nothing.
+ */
 static void update_dxcc_from_input(const char *input) {
   dxcc_text[0] = 0;
   last_cq = 0;
@@ -450,6 +574,12 @@ static void update_dxcc_from_input(const char *input) {
   }
 }
 
+/*
+ * Finalize a parsed QSO line and refresh derived UI state.
+ *
+ * @param line QSO input line.
+ * @return Nothing.
+ */
 static void process_qso(const char *line) {
   int idx = qso_add(line, status_text, sizeof(status_text));
 
@@ -474,6 +604,11 @@ static void process_qso(const char *line) {
   stats_update();
 }
 
+/*
+ * Refresh the rendered info line based on suggestions and current input.
+ *
+ * @return Nothing.
+ */
 static void update_display_info(void) {
   if (call_suggestion_available && !export_prompt_mode) {
     const char *selected = call_suggestion_selected(&call_suggestions);
@@ -490,6 +625,11 @@ static void update_display_info(void) {
   }
 }
 
+/*
+ * Initialize shared application state and background services.
+ *
+ * @return 0 on success.
+ */
 int app_controller_init(void) {
   memset(input_buffer, 0, sizeof(input_buffer));
   input_len = 0;
@@ -500,6 +640,7 @@ int app_controller_init(void) {
   info_text[0] = 0;
   display_info[0] = 0;
   cluster_view = false;
+  bandmap_view = false;
   cluster_scroll = 0;
   export_prompt_mode = false;
   cty_update_in_progress = 0;
@@ -520,11 +661,22 @@ int app_controller_init(void) {
   return 0;
 }
 
+/*
+ * Shut down shared application state and stop background services.
+ *
+ * @return Nothing.
+ */
 void app_controller_shutdown(void) {
   dxcluster_stop();
   db_shutdown();
 }
 
+/*
+ * Copy the current render state into out for UI consumers.
+ *
+ * @param out Destination structure to fill.
+ * @return Nothing.
+ */
 void app_controller_get_render_state(AppRenderState *out) {
   if (!out)
     return;
@@ -536,9 +688,15 @@ void app_controller_get_render_state(AppRenderState *out) {
   out->dxcc = dxcc_text;
   out->info = display_info;
   out->cluster_view = cluster_view;
+  out->bandmap_view = bandmap_view;
   out->cluster_scroll = cluster_scroll;
 }
 
+/*
+ * Download and reload the latest CTY database.
+ *
+ * @return Nothing.
+ */
 void app_controller_perform_cty_update(void) {
   if (cty_download_latest("wl_cty.dat") == 0) {
     int loaded = cty_load("wl_cty.dat");
@@ -554,6 +712,12 @@ void app_controller_perform_cty_update(void) {
   cty_update_in_progress = 0;
 }
 
+/*
+ * Handle a translated key code and update shared controller state.
+ *
+ * @param key One of the APP_KEY_* values.
+ * @return The controller event to propagate to the UI.
+ */
 AppControllerEvent app_controller_handle_key(int key) {
   if (key == APP_KEY_NONE || key == APP_KEY_RESIZE)
     return APP_CTRL_EVENT_NONE;
@@ -600,11 +764,18 @@ AppControllerEvent app_controller_handle_key(int key) {
   if (key == APP_KEY_F5) {
     cluster_view = !cluster_view;
     if (cluster_view) {
+      bandmap_view = false;
       cluster_scroll = 0;
       snprintf(status_text, sizeof(status_text), "DXCluster full view");
     } else {
       snprintf(status_text, sizeof(status_text), "Returned to main view");
     }
+  }
+
+  if (key == APP_KEY_F8) {
+    bandmap_view = !bandmap_view;
+    snprintf(status_text, sizeof(status_text),
+             bandmap_view ? "Bandmap visible" : "Bandmap hidden");
   }
 
   if (key == APP_KEY_F7) {
@@ -637,7 +808,7 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 new | F3 previous | cmd: logs/openlog");
+             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 cluster | F8 bandmap");
     return APP_CTRL_EVENT_NONE;
   }
 

@@ -21,8 +21,27 @@ extern int spot_start;
 extern char dxcluster_status[128];
 extern pthread_mutex_t dxcluster_mutex;
 
+/*
+ * Start the background DXCluster worker thread.
+ *
+ * @return 0 on success, or -1 if the worker thread cannot be created or its
+ *         shutdown pipe cannot be initialized.
+ */
 int dxcluster_start(void);
+
+/*
+ * Stop the background DXCluster worker thread and release its resources.
+ *
+ * @return Nothing.
+ */
 void dxcluster_stop(void);
+
+/*
+ * Update the shared DXCluster status string.
+ *
+ * @param text Status message to store before the configured host and port.
+ * @return Nothing.
+ */
 void dxcluster_set_status(const char *text);
 
 #endif

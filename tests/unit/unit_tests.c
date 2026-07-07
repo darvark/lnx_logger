@@ -311,6 +311,16 @@ static void test_qso_add_mark_and_stats(void) {
                   "F3 status confirms previous log restore");
   expect_str_eq(logbook[0].call, "SP9ABC", "restored first QSO call");
   expect_str_eq(logbook[1].call, "K1ABC", "restored second QSO call");
+
+  app_controller_handle_key(APP_KEY_F8);
+  app_controller_get_render_state(&state);
+  expect_true(state.bandmap_view, "F8 enables bandmap view");
+  expect_true(!state.cluster_view, "F8 disables cluster view");
+
+  app_controller_handle_key(APP_KEY_F5);
+  app_controller_get_render_state(&state);
+  expect_true(state.cluster_view, "F5 enables cluster view");
+  expect_true(!state.bandmap_view, "F5 disables bandmap view");
 }
 
 static void test_export_csv_adif(const char *tmp_dir) {
@@ -414,6 +424,22 @@ static void test_dxcluster_start_stop(void) {
                   strstr(dxcluster_status, "timeout") != NULL ||
                   strstr(dxcluster_status, "Connecting") != NULL,
               "dxcluster_stop should finish worker lifecycle");
+}
+
+static void test_app_controller_shutdown_stops_cluster(void) {
+  AppRenderState state;
+
+  app_controller_init();
+  app_controller_get_render_state(&state);
+  expect_true(state.status != NULL, "shutdown test status is present");
+
+  app_controller_shutdown();
+
+  expect_true(strstr(dxcluster_status, "Disconnected") != NULL ||
+                  strstr(dxcluster_status, "failed") != NULL ||
+                  strstr(dxcluster_status, "timeout") != NULL ||
+                  strstr(dxcluster_status, "Connecting") != NULL,
+              "app_controller_shutdown should stop DXCluster worker");
 }
 
 static void test_call_suggestions(void) {
@@ -594,6 +620,7 @@ int main(void) {
   test_maidenhead();
   test_dxcluster_set_status();
   test_dxcluster_start_stop();
+  test_app_controller_shutdown_stops_cluster();
   test_call_suggestions();
   test_app_controller_key_flow();
   test_named_log_commands();
