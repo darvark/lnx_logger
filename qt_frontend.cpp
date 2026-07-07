@@ -881,30 +881,19 @@ private:
     }
 
     refresh_log_table();
-    const int max_scroll = refresh_cluster_table(state.cluster_view, state.cluster_scroll);
+    refresh_cluster_table(false, 0);
     refresh_bandmap_table();
     refresh_suggestions();
 
-    const bool fullscreen_cluster = state.cluster_view;
-    const bool hide_main = fullscreen_cluster;
-    log_group_->setVisible(!hide_main);
-    input_panel_->setVisible(!hide_main);
-    status_panel_->setVisible(!hide_main);
-    dxcc_panel_->setVisible(!hide_main);
-    stats_panel_->setVisible(!hide_main);
-    gap_panel_->setVisible(!hide_main);
-    suggestions_frame_->setVisible(!hide_main && call_suggestion_available);
-    cluster_group_->setVisible(true);
-    bandmap_group_->setVisible(state.bandmap_view && !fullscreen_cluster);
-
-    if (fullscreen_cluster) {
-      const int display_scroll = std::clamp(state.cluster_scroll, 0, max_scroll);
-      function_label_->setText(clip_to_cols(
-          QString("UP/DOWN scroll | PgUp/PgDn page | F4 return | %1/%2")
-              .arg(display_scroll + 1)
-              .arg(max_scroll + 1),
-          std::max(1, func_cols)));
-    }
+    log_group_->setVisible(true);
+    input_panel_->setVisible(true);
+    status_panel_->setVisible(true);
+    dxcc_panel_->setVisible(true);
+    stats_panel_->setVisible(true);
+    gap_panel_->setVisible(true);
+    suggestions_frame_->setVisible(call_suggestion_available);
+    cluster_group_->setVisible(state.cluster_view);
+    bandmap_group_->setVisible(state.bandmap_view);
   }
 
   QTimer *timer_ = nullptr;

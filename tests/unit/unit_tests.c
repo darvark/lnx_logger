@@ -240,6 +240,9 @@ static void test_qso_add_mark_and_stats(void) {
   char status[128];
   AppRenderState state;
 
+  app_controller_get_render_state(&state);
+  expect_true(state.cluster_view, "DXCluster window is shown by default");
+
   qso_init();
   expect_int_eq(qso_count, 0, "qso_init resets qso_count");
 
@@ -315,12 +318,15 @@ static void test_qso_add_mark_and_stats(void) {
   app_controller_handle_key(APP_KEY_F8);
   app_controller_get_render_state(&state);
   expect_true(state.bandmap_view, "F8 enables bandmap view");
-  expect_true(!state.cluster_view, "F8 disables cluster view");
+  expect_true(state.cluster_view, "F8 leaves cluster view enabled");
+
+  app_controller_handle_key(APP_KEY_F5);
+  app_controller_get_render_state(&state);
+  expect_true(!state.cluster_view, "F5 disables cluster view");
 
   app_controller_handle_key(APP_KEY_F5);
   app_controller_get_render_state(&state);
   expect_true(state.cluster_view, "F5 enables cluster view");
-  expect_true(!state.bandmap_view, "F5 disables bandmap view");
 }
 
 static void test_export_csv_adif(const char *tmp_dir) {
@@ -522,13 +528,13 @@ static void test_app_controller_key_flow(void) {
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
                 "F5 toggle should not request special controller event");
   app_controller_get_render_state(&state);
-  expect_true(state.cluster_view, "F5 should enable cluster full view");
+  expect_true(!state.cluster_view, "F5 should hide the cluster view");
 
   ev = app_controller_handle_key(APP_KEY_F5);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,
                 "second F5 toggle should not request special event");
   app_controller_get_render_state(&state);
-  expect_true(!state.cluster_view, "second F5 should return to main view");
+  expect_true(state.cluster_view, "second F5 should show the cluster view again");
 
   ev = app_controller_handle_key(APP_KEY_F6);
   expect_int_eq((int)ev, (int)APP_CTRL_EVENT_NONE,

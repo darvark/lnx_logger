@@ -262,7 +262,7 @@ While running the application, you can use these commands in the input line:
 - F2: create a new clean logbook and clear call history
 - F3: reopen the previous logbook snapshot from SQLite
 - F4: prompt for ADIF filename, then export CSV and ADIF using the entered ADIF name
-- F5: toggle DXCluster fullscreen view
+- F5: show or hide the DXCluster window
 - F6: recalculate statistics
 - F7: download the latest wl_cty.dat and reload CTY entries
 - F8: show or hide the bandmap sidebar on the right

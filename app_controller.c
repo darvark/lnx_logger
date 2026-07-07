@@ -34,7 +34,7 @@ static char call_history[MAX_CALL_HISTORY][32];
 static int call_history_count = 0;
 static CallSuggestionList call_suggestions;
 
-static bool cluster_view = false;
+static bool cluster_view = true;
 static bool bandmap_view = false;
 static int cluster_scroll = 0;
 static bool export_prompt_mode = false;
@@ -639,7 +639,7 @@ int app_controller_init(void) {
   dxcc_text[0] = 0;
   info_text[0] = 0;
   display_info[0] = 0;
-  cluster_view = false;
+  cluster_view = true;
   bandmap_view = false;
   cluster_scroll = 0;
   export_prompt_mode = false;
@@ -763,13 +763,9 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F5) {
     cluster_view = !cluster_view;
-    if (cluster_view) {
-      bandmap_view = false;
-      cluster_scroll = 0;
-      snprintf(status_text, sizeof(status_text), "DXCluster full view");
-    } else {
-      snprintf(status_text, sizeof(status_text), "Returned to main view");
-    }
+    snprintf(status_text, sizeof(status_text),
+             cluster_view ? "DXCluster window enabled"
+                          : "DXCluster window disabled");
   }
 
   if (key == APP_KEY_F8) {
@@ -785,30 +781,9 @@ AppControllerEvent app_controller_handle_key(int key) {
     return APP_CTRL_EVENT_REQUEST_CTY_UPDATE;
   }
 
-  if (cluster_view) {
-    if (key == APP_KEY_UP) {
-      cluster_scroll = cluster_scroll > 0 ? cluster_scroll - 1 : 0;
-      return APP_CTRL_EVENT_NONE;
-    }
-    if (key == APP_KEY_DOWN) {
-      cluster_scroll++;
-      return APP_CTRL_EVENT_NONE;
-    }
-    if (key == APP_KEY_PAGE_UP) {
-      cluster_scroll = cluster_scroll > 5 ? cluster_scroll - 5 : 0;
-      return APP_CTRL_EVENT_NONE;
-    }
-    if (key == APP_KEY_PAGE_DOWN) {
-      cluster_scroll += 5;
-      return APP_CTRL_EVENT_NONE;
-    }
-
-    return APP_CTRL_EVENT_NONE;
-  }
-
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 cluster | F8 bandmap");
+             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 DXC on/off | F8 bandmap");
     return APP_CTRL_EVENT_NONE;
   }
 
