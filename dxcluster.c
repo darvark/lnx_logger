@@ -25,6 +25,8 @@ static pthread_t thread_id;
 struct sockaddr_in addr;
 static int stop_pipe[2] = {-1, -1};
 
+static void dxcluster_close_socket(void *arg);
+
 /* ------------------------------------------------ */
 
 /*
@@ -54,6 +56,21 @@ static void dxcluster_close_stop_pipe(void) {
     close(stop_pipe[1]);
     stop_pipe[1] = -1;
   }
+}
+
+/*
+ * Close a socket passed through a cleanup handler.
+ *
+ * @param arg Pointer to an active socket descriptor.
+ * @return Nothing.
+ */
+static void dxcluster_close_socket(void *arg) {
+  int *sock = (int *)arg;
+  if (!sock || *sock < 0)
+    return;
+
+  close(*sock);
+  *sock = -1;
 }
 
 /*
@@ -386,8 +403,11 @@ static void *cluster_thread(void *arg) {
   pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
   pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
+  int sock = -1;
+  pthread_cleanup_push(dxcluster_close_socket, &sock);
+
   while (running) {
-    int sock = -1;
+    sock = -1;
 
     dxcluster_set_status("Connecting...");
     pthread_testcancel();
@@ -408,7 +428,7 @@ static void *cluster_thread(void *arg) {
     struct hostent *host = gethostbyname(config.dxc_host);
     if (!host) {
       dxcluster_set_status("DNS failed");
-      close(sock);
+      dxcluster_close_socket(&sock);
       if (dxcluster_sleep_or_stop(5) < 0)
         break;
       continue;
@@ -424,7 +444,7 @@ static void *cluster_thread(void *arg) {
     if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
       if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
         dxcluster_set_status("Connect failed");
-        close(sock);
+        dxcluster_close_socket(&sock);
         if (dxcluster_sleep_or_stop(1) < 0)
           break;
         continue;
@@ -433,13 +453,13 @@ static void *cluster_thread(void *arg) {
 
     int sel = dxcluster_wait_for_socket(sock, 1, 30);
     if (sel < 0) {
-      close(sock);
+      dxcluster_close_socket(&sock);
       break;
     }
 
     if (sel == 0) {
       dxcluster_set_status("Connect timeout");
-      close(sock);
+      dxcluster_close_socket(&sock);
       if (dxcluster_sleep_or_stop(1) < 0)
         break;
       continue;
@@ -450,7 +470,7 @@ static void *cluster_thread(void *arg) {
     getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
     if (so_error != 0) {
       dxcluster_set_status("Connect failed");
-      close(sock);
+      dxcluster_close_socket(&sock);
       if (dxcluster_sleep_or_stop(1) < 0)
         break;
       continue;
@@ -467,7 +487,7 @@ static void *cluster_thread(void *arg) {
     if (login_sent) {
       if (send_cluster_commands(sock) < 0) {
         dxcluster_set_status("Init command send failed");
-        close(sock);
+        dxcluster_close_socket(&sock);
         if (dxcluster_sleep_or_stop(1) < 0)
           break;
         continue;
@@ -571,7 +591,7 @@ static void *cluster_thread(void *arg) {
       }
     }
 
-    close(sock);
+    dxcluster_close_socket(&sock);
 
     if (!running)
       break;
@@ -583,6 +603,8 @@ static void *cluster_thread(void *arg) {
 
   if (!running)
     dxcluster_set_status("Disconnected");
+
+  pthread_cleanup_pop(1);
 
   return NULL;
 }

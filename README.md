@@ -5,6 +5,104 @@ Logger is an amateur radio logging application for entering QSOs, looking up DXC
 The application uses shared controller/core logic, with Qt providing the user interface.
 
 
+## Architecture
+
+```mermaid
+classDiagram
+direction LR
+
+class QtFrontend {
+	+main()
+	+LoggerQtWindow
+}
+
+class AppController {
+	+app_controller_init()
+	+app_controller_shutdown()
+	+app_controller_get_render_state()
+	+app_controller_handle_key()
+	+app_controller_perform_cty_update()
+}
+
+class QSOCore {
+	+qso_init()
+	+qso_add()
+	+qso_mark_invalid()
+	+detect_band()
+	+detect_mode()
+}
+
+class Database {
+	+db_init()
+	+db_shutdown()
+	+db_load_qsos()
+	+db_insert_qso()
+	+db_export_csv()
+	+db_export_adif()
+}
+
+class CTYLookup {
+	+cty_load()
+	+cty_download_latest()
+	+cty_lookup()
+}
+
+class DXCluster {
+	+dxcluster_start()
+	+dxcluster_stop()
+	+dxcluster_set_status()
+}
+
+class CallSuggestion {
+	+call_suggestion_refresh()
+	+call_suggestion_apply()
+}
+
+class Statistics {
+	+stats_update()
+}
+
+class Export {
+	+export_csv()
+	+export_adif()
+}
+
+class Maidenhead {
+	+locator_to_latlon()
+}
+
+class Config {
+	+config_load()
+}
+
+class ExternalData {
+	<<database>> logger.db
+	<<file>> logger.conf
+	<<file>> wl_cty.dat
+	<<service>> DXCluster server
+}
+
+QtFrontend --> AppController
+AppController --> QSOCore
+AppController --> CTYLookup
+AppController --> DXCluster
+AppController --> CallSuggestion
+AppController --> Statistics
+AppController --> Export
+AppController --> Database
+
+QSOCore --> CTYLookup
+QSOCore --> Database
+Statistics --> QSOCore
+Export --> Database
+Database --> ExternalData
+Config --> ExternalData
+CTYLookup --> ExternalData
+DXCluster --> ExternalData
+Maidenhead --> ExternalData
+```
+
+
 ![lnx_logger](./lnx_logger.png "LNX Logger") 
 
 ## What it does
