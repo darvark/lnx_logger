@@ -661,7 +661,7 @@ private:
           "QFrame { background: #f3d24f; color: #111; font-weight: bold; }");
     } else {
         function_label_->setText(clip_to_cols(
-      "F1 Help  F2 New Named Log  F3 Open Log  F4 Export  F5 DXCluster  F6 Stats  F7 CTY  F10 Quit",
+      "F1 Help | F2 New Named Log | F3 Open Log | F4 Export Log | F5 DXCluster | F6 Statistics | F7 Update CTY | F10 Quit",
           std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #0f5ea4; color: #f4f8ff; font-weight: bold; }");
@@ -683,7 +683,7 @@ private:
     if (fullscreen_cluster) {
       const int display_scroll = std::clamp(state.cluster_scroll, 0, max_scroll);
       function_label_->setText(clip_to_cols(
-          QString("UP/DOWN scroll  PgUp/PgDn page  F4 return  %1/%2")
+          QString("UP/DOWN scroll | PgUp/PgDn page | F4 return | %1/%2")
               .arg(display_scroll + 1)
               .arg(max_scroll + 1),
           std::max(1, func_cols)));
