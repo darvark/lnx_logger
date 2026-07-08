@@ -37,7 +37,6 @@ static int call_history_count = 0;
 static CallSuggestionList call_suggestions;
 
 static bool cluster_view = true;
-static bool bandmap_view = false;
 static int cluster_scroll = 0;
 static bool export_prompt_mode = false;
 
@@ -642,7 +641,6 @@ int app_controller_init(void) {
   info_text[0] = 0;
   display_info[0] = 0;
   cluster_view = true;
-  bandmap_view = false;
   cluster_scroll = 0;
   export_prompt_mode = false;
   cty_update_in_progress = 0;
@@ -659,8 +657,8 @@ int app_controller_init(void) {
 
   if (app_debug_enabled) {
     fprintf(stderr,
-            "[debug] app_controller_init: cluster_view=%d bandmap_view=%d, starting DXCluster\n",
-            cluster_view ? 1 : 0, bandmap_view ? 1 : 0);
+            "[debug] app_controller_init: cluster_view=%d, starting DXCluster\n",
+            cluster_view ? 1 : 0);
   }
 
   if (dxcluster_start() != 0) {
@@ -700,7 +698,6 @@ void app_controller_get_render_state(AppRenderState *out) {
   out->dxcc = dxcc_text;
   out->info = display_info;
   out->cluster_view = cluster_view;
-  out->bandmap_view = bandmap_view;
   out->cluster_scroll = cluster_scroll;
 }
 
@@ -785,16 +782,6 @@ AppControllerEvent app_controller_handle_key(int key) {
     }
   }
 
-  if (key == APP_KEY_F8) {
-    bandmap_view = !bandmap_view;
-    snprintf(status_text, sizeof(status_text),
-             bandmap_view ? "Bandmap visible" : "Bandmap hidden");
-    if (app_debug_enabled) {
-      fprintf(stderr, "[debug] APP_KEY_F8: bandmap_view=%d\n",
-              bandmap_view ? 1 : 0);
-    }
-  }
-
   if (key == APP_KEY_F7) {
     cty_update_in_progress = 1;
     snprintf(status_text, sizeof(status_text),
@@ -804,7 +791,7 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 DXC on/off | F8 bandmap");
+             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 DXC on/off");
     return APP_CTRL_EVENT_NONE;
   }
 

@@ -265,7 +265,6 @@ While running the application, you can use these commands in the input line:
 - F5: show or hide the DXCluster window
 - F6: recalculate statistics
 - F7: download the latest wl_cty.dat and reload CTY entries
-- F8: show or hide the bandmap sidebar on the right
 - F10: quit
 
 ## Callsign suggestions

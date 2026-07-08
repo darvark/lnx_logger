@@ -72,9 +72,8 @@ static void dxcluster_close_log(void) {
 }
 
 /*
- * Close a socket passed through a cleanup handler.
+ * Close both ends of the stop pipe.
  *
- * @param arg Pointer to an active socket descriptor.
  * @return Nothing.
  */
 static void dxcluster_close_socket(void *arg) {

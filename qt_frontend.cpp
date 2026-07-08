@@ -187,7 +187,24 @@ public:
     cluster_group_->setObjectName("clusterGroup");
     auto *cluster_layout = new QVBoxLayout(cluster_group_);
     cluster_layout->setContentsMargins(6, 24, 6, 6);
-    cluster_layout->setSpacing(2);
+    cluster_layout->setSpacing(4);
+
+    auto *cluster_filters = new QFrame(cluster_group_);
+    auto *cluster_filters_layout = new QGridLayout(cluster_filters);
+    cluster_filters_layout->setContentsMargins(0, 0, 0, 0);
+    cluster_filters_layout->setHorizontalSpacing(10);
+    cluster_filters_layout->setVerticalSpacing(2);
+
+    for (int i = 0; i < (int)kBandLabels.size(); i++) {
+      cluster_band_checks_[i] = new QCheckBox(kBandLabels[i], cluster_filters);
+      cluster_band_checks_[i]->setChecked(true);
+      connect(cluster_band_checks_[i], &QCheckBox::toggled, this,
+              [this]() { refresh_ui(); });
+      cluster_filters_layout->addWidget(cluster_band_checks_[i], i / 12, i % 12);
+    }
+
+    cluster_layout->addWidget(cluster_filters);
+
     cluster_table_ = new QTableWidget(cluster_group_);
     cluster_table_->setColumnCount(4);
     cluster_table_->setHorizontalHeaderLabels({"Time", "Freq", "Call", "Comment"});
@@ -204,48 +221,7 @@ public:
     cluster_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     left_layout->addWidget(cluster_group_, 1);
 
-    bandmap_group_ = new QGroupBox("Bandmap", central);
-    bandmap_group_->setObjectName("bandmapGroup");
-    auto *bandmap_layout = new QVBoxLayout(bandmap_group_);
-    bandmap_layout->setContentsMargins(6, 24, 6, 6);
-    bandmap_layout->setSpacing(4);
-
-    auto *bandmap_filters = new QFrame(bandmap_group_);
-    auto *bandmap_filters_layout = new QGridLayout(bandmap_filters);
-    bandmap_filters_layout->setContentsMargins(0, 0, 0, 0);
-    bandmap_filters_layout->setHorizontalSpacing(10);
-    bandmap_filters_layout->setVerticalSpacing(2);
-
-    for (int i = 0; i < (int)kBandLabels.size(); i++) {
-      bandmap_band_checks_[i] = new QCheckBox(kBandLabels[i], bandmap_filters);
-      bandmap_band_checks_[i]->setChecked(true);
-      connect(bandmap_band_checks_[i], &QCheckBox::toggled, this,
-              [this]() { refresh_ui(); });
-      bandmap_filters_layout->addWidget(bandmap_band_checks_[i], i / 4, i % 4);
-    }
-
-    bandmap_layout->addWidget(bandmap_filters);
-
-    bandmap_table_ = new QTableWidget(bandmap_group_);
-    bandmap_table_->setColumnCount(4);
-    bandmap_table_->setHorizontalHeaderLabels({"Band", "Freq", "Call", "Comment"});
-    bandmap_table_->verticalHeader()->setVisible(false);
-    bandmap_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    bandmap_table_->setSelectionMode(QAbstractItemView::NoSelection);
-    bandmap_table_->setFocusPolicy(Qt::NoFocus);
-    bandmap_table_->setShowGrid(false);
-    bandmap_table_->setWordWrap(false);
-    bandmap_table_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    bandmap_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    bandmap_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    bandmap_layout->addWidget(bandmap_table_);
-    bandmap_group_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    bandmap_group_->setMinimumWidth(360);
-    bandmap_group_->setMaximumWidth(430);
-    bandmap_group_->hide();
-
     root->addWidget(left_column, 1);
-    root->addWidget(bandmap_group_, 0);
 
     function_panel_ = new QFrame(central);
     auto *function_layout = new QHBoxLayout(function_panel_);
@@ -427,8 +403,6 @@ private:
       return APP_KEY_F6;
     case Qt::Key_F7:
       return APP_KEY_F7;
-    case Qt::Key_F8:
-      return APP_KEY_F8;
     case Qt::Key_F10:
       return APP_KEY_F10;
     case Qt::Key_Up:
@@ -496,8 +470,8 @@ private:
     suggestions_frame_->setStyleSheet(
         "QFrame { background: #95dceb; border: 1px solid #0e6a85; }"
         "QLabel#suggestTitle { background: #0f5ea4; color: #f4f8ff; padding: 2px 6px; font-weight: bold; }");
-    bandmap_group_->setStyleSheet(
-      "QGroupBox#bandmapGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
+    cluster_group_->setStyleSheet(
+      "QGroupBox#clusterGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
       " color: #f4f8ff; background: #0f5ea4; }"
       "QCheckBox { color: #0d2d3b; font-weight: bold; }");
   }
@@ -542,8 +516,6 @@ private:
     log_table_->horizontalHeader()->setFixedHeight(header_h);
     cluster_table_->verticalHeader()->setDefaultSectionSize(row_h);
     cluster_table_->horizontalHeader()->setFixedHeight(header_h);
-    bandmap_table_->verticalHeader()->setDefaultSectionSize(row_h);
-    bandmap_table_->horizontalHeader()->setFixedHeight(header_h);
 
     const int log_col_chars[8] = {3, 9, 5, 15, 6, 5, 5, 4};
     for (int i = 0; i < 8; i++) {
@@ -556,11 +528,6 @@ private:
     cluster_table_->setColumnWidth(0, cols_to_px(cluster_col_chars[0]));
     cluster_table_->setColumnWidth(1, cols_to_px(cluster_col_chars[1]));
     cluster_table_->setColumnWidth(2, cols_to_px(cluster_col_chars[2]));
-
-    const int bandmap_col_chars[4] = {5, 11, 13, 24};
-    bandmap_table_->setColumnWidth(0, cols_to_px(bandmap_col_chars[0]));
-    bandmap_table_->setColumnWidth(1, cols_to_px(bandmap_col_chars[1]));
-    bandmap_table_->setColumnWidth(2, cols_to_px(bandmap_col_chars[2]));
 
     log_group_->setMinimumHeight((12 + 3) * row_h + 26);
 
@@ -645,6 +612,11 @@ private:
 
     std::vector<SpotCopy> items;
     QString status;
+    bool band_enabled[(int)kBandLabels.size()];
+
+    for (int i = 0; i < (int)kBandLabels.size(); i++)
+      band_enabled[i] =
+          cluster_band_checks_[i] && cluster_band_checks_[i]->isChecked();
 
     pthread_mutex_lock(&dxcluster_mutex);
     status = dxcluster_status;
@@ -679,6 +651,16 @@ private:
     items.reserve(count);
     for (int i = 0; i < count; i++) {
       const int idx = (start + i) % MAX_SPOTS;
+      const int freq_khz = parse_spot_khz(spots[idx].freq);
+      if (freq_khz <= 0)
+        continue;
+
+      char band[8] = {0};
+      detect_band(freq_khz, band);
+      const int band_idx = band_index(band);
+      if (band_idx < 0 || !band_enabled[band_idx])
+        continue;
+
       items.push_back({spots[idx].time, spots[idx].freq, spots[idx].call, spots[idx].comment});
     }
     pthread_mutex_unlock(&dxcluster_mutex);
@@ -717,90 +699,6 @@ private:
       cluster_table_->scrollToBottom();
 
     return max_scroll;
-  }
-
-  void refresh_bandmap_table() {
-    struct BandSpotCopy {
-      int freq_khz;
-      QString band;
-      QString freq;
-      QString call;
-      QString comment;
-    };
-
-    bool band_enabled[(int)kBandLabels.size()];
-    for (int i = 0; i < (int)kBandLabels.size(); i++)
-      band_enabled[i] = bandmap_band_checks_[i] && bandmap_band_checks_[i]->isChecked();
-
-    std::vector<BandSpotCopy> items;
-    QString status;
-
-    pthread_mutex_lock(&dxcluster_mutex);
-    status = dxcluster_status;
-
-    const int count = spot_count;
-    items.reserve(count);
-    for (int i = 0; i < count; i++) {
-      const int idx = (spot_start + i) % MAX_SPOTS;
-      const int freq_khz = parse_spot_khz(spots[idx].freq);
-      if (freq_khz <= 0)
-        continue;
-
-      char band[8] = {0};
-      detect_band(freq_khz, band);
-      const int band_idx = band_index(band);
-      if (band_idx < 0 || !band_enabled[band_idx])
-        continue;
-
-      items.push_back({freq_khz, band, spots[idx].freq, spots[idx].call,
-                       spots[idx].comment});
-    }
-    pthread_mutex_unlock(&dxcluster_mutex);
-
-    std::sort(items.begin(), items.end(), [](const BandSpotCopy &a, const BandSpotCopy &b) {
-      if (a.freq_khz != b.freq_khz)
-        return a.freq_khz < b.freq_khz;
-      if (a.band != b.band)
-        return a.band < b.band;
-      return a.call < b.call;
-    });
-
-    bandmap_group_->setTitle(QString("Bandmap [%1]").arg(status));
-    bandmap_table_->clearSpans();
-
-    if (items.empty()) {
-      bandmap_table_->setRowCount(1);
-      auto *item = new QTableWidgetItem("No spots for selected bands");
-      item->setTextAlignment(Qt::AlignCenter);
-      bandmap_table_->setSpan(0, 0, 1, bandmap_table_->columnCount());
-      bandmap_table_->setItem(0, 0, item);
-      return;
-    }
-
-    bandmap_table_->setRowCount((int)items.size());
-    for (int row = 0; row < (int)items.size(); row++) {
-      auto *band_item = new QTableWidgetItem(items[row].band);
-      auto *freq_item = new QTableWidgetItem(items[row].freq);
-      auto *call_item = new QTableWidgetItem(items[row].call);
-      auto *comment_item = new QTableWidgetItem(items[row].comment);
-
-      band_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
-      freq_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
-      call_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
-      comment_item->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
-
-      band_item->setForeground(QColor(14, 90, 20));
-      freq_item->setForeground(QColor(14, 90, 20));
-      call_item->setForeground(QColor(14, 90, 20));
-      comment_item->setForeground(QColor(14, 90, 20));
-
-      bandmap_table_->setItem(row, 0, band_item);
-      bandmap_table_->setItem(row, 1, freq_item);
-      bandmap_table_->setItem(row, 2, call_item);
-      bandmap_table_->setItem(row, 3, comment_item);
-    }
-
-    bandmap_table_->scrollToTop();
   }
 
   void refresh_suggestions() {
@@ -874,7 +772,7 @@ private:
           "QFrame { background: #f3d24f; color: #111; font-weight: bold; }");
     } else {
         function_label_->setText(clip_to_cols(
-      "F1 Help | F2 New Named Log | F3 Open Log | F4 Export Log | F5 DXCluster | F6 Statistics | F7 Update CTY | F8 Bandmap | F10 Quit",
+      "F1 Help | F2 New Named Log | F3 Open Log | F4 Export Log | F5 DXCluster | F6 Statistics | F7 Update CTY | F10 Quit",
           std::max(1, func_cols)));
       function_panel_->setStyleSheet(
           "QFrame { background: #0f5ea4; color: #f4f8ff; font-weight: bold; }");
@@ -882,7 +780,6 @@ private:
 
     refresh_log_table();
     refresh_cluster_table(false, 0);
-    refresh_bandmap_table();
     refresh_suggestions();
 
     log_group_->setVisible(true);
@@ -893,7 +790,6 @@ private:
     gap_panel_->setVisible(true);
     suggestions_frame_->setVisible(call_suggestion_available);
     cluster_group_->setVisible(state.cluster_view);
-    bandmap_group_->setVisible(state.bandmap_view);
   }
 
   QTimer *timer_ = nullptr;
@@ -922,10 +818,7 @@ private:
 
   QGroupBox *cluster_group_ = nullptr;
   QTableWidget *cluster_table_ = nullptr;
-
-  QGroupBox *bandmap_group_ = nullptr;
-  QTableWidget *bandmap_table_ = nullptr;
-  std::array<QCheckBox *, kBandLabels.size()> bandmap_band_checks_{};
+  std::array<QCheckBox *, kBandLabels.size()> cluster_band_checks_{};
 
   QFrame *function_panel_ = nullptr;
   QLabel *function_label_ = nullptr;

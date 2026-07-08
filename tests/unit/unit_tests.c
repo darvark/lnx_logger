@@ -315,11 +315,6 @@ static void test_qso_add_mark_and_stats(void) {
   expect_str_eq(logbook[0].call, "SP9ABC", "restored first QSO call");
   expect_str_eq(logbook[1].call, "K1ABC", "restored second QSO call");
 
-  app_controller_handle_key(APP_KEY_F8);
-  app_controller_get_render_state(&state);
-  expect_true(state.bandmap_view, "F8 enables bandmap view");
-  expect_true(state.cluster_view, "F8 leaves cluster view enabled");
-
   app_controller_handle_key(APP_KEY_F5);
   app_controller_get_render_state(&state);
   expect_true(!state.cluster_view, "F5 disables cluster view");

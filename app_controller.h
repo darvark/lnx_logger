@@ -17,7 +17,6 @@ enum {
   APP_KEY_F5 = -7,
   APP_KEY_F6 = -8,
   APP_KEY_F7 = -9,
-  APP_KEY_F8 = -10,
   APP_KEY_F10 = -11,
   APP_KEY_UP = -12,
   APP_KEY_DOWN = -13,
@@ -42,7 +41,6 @@ typedef struct {
   const char *dxcc;
   const char *info;
   bool cluster_view;
-  bool bandmap_view;
   int cluster_scroll;
 } AppRenderState;
 
