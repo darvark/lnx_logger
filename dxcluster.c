@@ -286,8 +286,26 @@ void dxcluster_set_status(const char *text) {
     return;
 
   char tmp[128];
-  snprintf(tmp, sizeof(tmp), "%s (%s:%d)", text, config.dxc_host,
-           config.dxc_port);
+  snprintf(tmp, sizeof(tmp), "%s", text);
+
+  const size_t used = strnlen(tmp, sizeof(tmp));
+  if (used < sizeof(tmp) - 1 && config.dxc_host[0]) {
+    const int port_len = snprintf(NULL, 0, "%d", config.dxc_port);
+    if (port_len > 0) {
+      const size_t avail = sizeof(tmp) - used - 1;
+      const size_t fixed = 4 + (size_t)port_len; /* " (" + ":" + ")" */
+
+      if (avail > fixed) {
+        size_t host_max = avail - fixed;
+        size_t host_len = strnlen(config.dxc_host, sizeof(config.dxc_host));
+        if (host_len > host_max)
+          host_len = host_max;
+
+        snprintf(tmp + used, sizeof(tmp) - used, " (%.*s:%d)", (int)host_len,
+                 config.dxc_host, config.dxc_port);
+      }
+    }
+  }
 
   pthread_mutex_lock(&dxcluster_mutex);
   snprintf(dxcluster_status, sizeof(dxcluster_status), "%s", tmp);
