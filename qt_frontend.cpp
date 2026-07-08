@@ -189,6 +189,20 @@ public:
     cluster_layout->setContentsMargins(6, 24, 6, 6);
     cluster_layout->setSpacing(4);
 
+        auto *cluster_search_row = new QFrame(cluster_group_);
+        auto *cluster_search_layout = new QHBoxLayout(cluster_search_row);
+        cluster_search_layout->setContentsMargins(0, 0, 0, 0);
+        cluster_search_layout->setSpacing(6);
+        auto *cluster_search_label = new QLabel("Call:", cluster_search_row);
+        cluster_search_edit_ = new QLineEdit(cluster_search_row);
+        cluster_search_edit_->setPlaceholderText("Search callsign...");
+        cluster_search_edit_->setClearButtonEnabled(true);
+        connect(cluster_search_edit_, &QLineEdit::textChanged, this,
+          [this]() { refresh_ui(); });
+        cluster_search_layout->addWidget(cluster_search_label);
+        cluster_search_layout->addWidget(cluster_search_edit_, 1);
+        cluster_layout->addWidget(cluster_search_row);
+
     auto *cluster_filters = new QFrame(cluster_group_);
     auto *cluster_filters_layout = new QGridLayout(cluster_filters);
     cluster_filters_layout->setContentsMargins(0, 0, 0, 0);
@@ -200,7 +214,7 @@ public:
       cluster_band_checks_[i]->setChecked(true);
       connect(cluster_band_checks_[i], &QCheckBox::toggled, this,
               [this]() { refresh_ui(); });
-      cluster_filters_layout->addWidget(cluster_band_checks_[i], i / 12, i % 12);
+      cluster_filters_layout->addWidget(cluster_band_checks_[i], i / 4, i % 4);
     }
 
     cluster_layout->addWidget(cluster_filters);
@@ -613,6 +627,8 @@ private:
     std::vector<SpotCopy> items;
     QString status;
     bool band_enabled[(int)kBandLabels.size()];
+    const QString call_filter =
+      cluster_search_edit_ ? cluster_search_edit_->text().trimmed() : QString();
 
     for (int i = 0; i < (int)kBandLabels.size(); i++)
       band_enabled[i] =
@@ -660,6 +676,12 @@ private:
       const int band_idx = band_index(band);
       if (band_idx < 0 || !band_enabled[band_idx])
         continue;
+
+      if (!call_filter.isEmpty()) {
+        const QString call = QString::fromLatin1(spots[idx].call);
+        if (!call.contains(call_filter, Qt::CaseInsensitive))
+          continue;
+      }
 
       items.push_back({spots[idx].time, spots[idx].freq, spots[idx].call, spots[idx].comment});
     }
@@ -818,6 +840,7 @@ private:
 
   QGroupBox *cluster_group_ = nullptr;
   QTableWidget *cluster_table_ = nullptr;
+  QLineEdit *cluster_search_edit_ = nullptr;
   std::array<QCheckBox *, kBandLabels.size()> cluster_band_checks_{};
 
   QFrame *function_panel_ = nullptr;
