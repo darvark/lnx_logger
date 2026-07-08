@@ -772,6 +772,32 @@ static void process_qso(const char *line) {
     return;
 
   QSO *q = &logbook[idx];
+  snprintf(info_text, sizeof(info_text), "%s %s", q->band, q->mode);
+
+  if (q->country[0] && strcmp(q->country, "UNKNOWN") != 0) {
+    snprintf(dxcc_text, sizeof(dxcc_text), "%s", q->country);
+    last_cq = q->cq_zone;
+    last_itu = q->itu_zone;
+  } else {
+    snprintf(dxcc_text, sizeof(dxcc_text), "Unknown");
+    last_cq = 0;
+    last_itu = 0;
+  }
+
+  stats_update();
+}
+
+/*
+ * Apply shared UI/stat state updates after inserting a QSO.
+ *
+ * @param idx Index of the inserted QSO in the in-memory logbook.
+ * @return 1 on success, otherwise 0.
+ */
+static int apply_saved_qso_state(int idx) {
+  if (idx < 0 || idx >= qso_count)
+    return 0;
+
+  QSO *q = &logbook[idx];
 
   snprintf(info_text, sizeof(info_text), "%s %s", q->band, q->mode);
 
@@ -787,6 +813,7 @@ static void process_qso(const char *line) {
   }
 
   stats_update();
+  return 1;
 }
 
 /*
@@ -1107,21 +1134,7 @@ AppControllerEvent app_controller_handle_key(int key) {
           int idx = qso_add_fields(entry_call, qso_freq_khz, entry_rst,
                                    entry_comments, status_text,
                                    sizeof(status_text));
-          if (idx >= 0) {
-            QSO *q = &logbook[idx];
-            snprintf(info_text, sizeof(info_text), "%s %s", q->band, q->mode);
-
-            if (q->country[0] && strcmp(q->country, "UNKNOWN") != 0) {
-              snprintf(dxcc_text, sizeof(dxcc_text), "%s", q->country);
-              last_cq = q->cq_zone;
-              last_itu = q->itu_zone;
-            } else {
-              snprintf(dxcc_text, sizeof(dxcc_text), "Unknown");
-              last_cq = 0;
-              last_itu = 0;
-            }
-
-            stats_update();
+          if (apply_saved_qso_state(idx)) {
             call_history_record_from_input(entry_call);
           }
         } else {

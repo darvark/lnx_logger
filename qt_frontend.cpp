@@ -87,13 +87,7 @@ QString render_rst_sr(const QSO &q) {
   if (rst_recv.isEmpty())
     rst_recv = "59";
 
-  QString rst_sent;
-  if (mode == "CW")
-    rst_sent = "599";
-  else if (mode == "SSB")
-    rst_sent = "59";
-  else
-    rst_sent = (rst_recv.size() >= 3) ? "599" : "59";
+  const QString rst_sent = (mode == "CW") ? "599" : "59";
 
   return QString("%1/%2").arg(rst_sent, rst_recv);
 }

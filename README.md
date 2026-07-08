@@ -22,14 +22,24 @@ class AppController {
 	+app_controller_get_render_state()
 	+app_controller_handle_key()
 	+app_controller_perform_cty_update()
+	+app_controller_get_active_frequency_khz()
 }
 
 class QSOCore {
 	+qso_init()
 	+qso_add()
+	+qso_add_fields()
 	+qso_mark_invalid()
 	+detect_band()
 	+detect_mode()
+}
+
+class CatControl {
+	+cat_init()
+	+cat_connect()
+	+cat_disconnect()
+	+cat_get_frequency_khz()
+	+cat_set_frequency_khz()
 }
 
 class Database {
@@ -86,6 +96,7 @@ QtFrontend --> AppController
 AppController --> QSOCore
 AppController --> CTYLookup
 AppController --> DXCluster
+AppController --> CatControl
 AppController --> CallSuggestion
 AppController --> Statistics
 AppController --> Export
@@ -108,6 +119,8 @@ Maidenhead --> ExternalData
 ## What it does
 
 - Records QSOs from the Qt desktop UI
+- Uses split entry fields: `call`, `rst`, `comments`
+- Lets you set manual operating frequency by entering only digits in the call field
 - Displays DXCC, CQ zone, and ITU zone information while typing a callsign
 - Shows a dedicated callsign suggestions panel in the top-right corner with all matching history entries
 - Connects to a DXCluster server, shows received spots in the cluster window, and stops the cluster worker cleanly when the app exits
@@ -117,12 +130,13 @@ Maidenhead --> ExternalData
 
 ## Features
 
-- QSO entry with frequency, RST, and mode detection
+- Split QSO entry with call/rst/comments and Space-based field cycling
+- CAT-aware frequency handling (live rig frequency when connected, manual fallback)
 - Callsign history suggestions with multi-match list view (top-right panel)
 - Local DXCC lookup from a CTY database
 - DXCluster status and spot display, with a stop-safe shutdown path
 - Invalid QSO marking for export exclusion
-- CSV/ADIF export support, including custom ADIF filename
+- CSV/ADIF export support, including comments and custom ADIF filename
 - One-key CTY database update from the internet
 - SQLite-backed logbook and call-history storage with `LOGGER_DB_PATH` override
 - New clean log action to truncate the current SQLite logbook and history
@@ -139,6 +153,7 @@ Maidenhead --> ExternalData
 Optional for GUI frontend:
 
 - Qt Widgets development package (Qt 5 or Qt 6)
+- Hamlib development package (for CAT support)
 
 On Debian/Ubuntu systems, install the required packages with:
 
@@ -267,6 +282,17 @@ While running the application, you can use these commands in the input line:
 - F7: download the latest wl_cty.dat and reload CTY entries
 - F10: quit
 
+## Entry workflow
+
+- Input is split into three fields: `Call`, `RST`, and `Comments`
+- Press `Space` to move active cursor between fields: call -> rst -> comments -> call
+- Press `Enter` to submit QSO when call + rst are filled
+- Type only digits in the call field and press `Enter` to set manual frequency in kHz (and rig frequency via CAT when connected)
+- Log view displays RST as `sent/received` in the `RST S/R` column
+	- sent defaults to `599` for CW
+	- sent defaults to `59` for other modes
+	- received is exactly the value entered in the RST field
+
 ## Callsign suggestions
 
 When you start typing the first token (callsign), Logger checks the SQLite-backed
@@ -282,7 +308,7 @@ call history and shows all matching callsigns in a separate window in the top-ri
 
 The program expects the DXCC database file named wl_cty.dat in the working directory or in the build directory.
 
-When F5 is used, wl_cty.dat is downloaded and replaced in the current working directory.
+When F7 is used, wl_cty.dat is downloaded and replaced in the current working directory.
 
 The QSO logbook and call history are stored in `logger.db` by default. Set
 `LOGGER_DB_PATH` to point at a different SQLite file if you want to keep the
