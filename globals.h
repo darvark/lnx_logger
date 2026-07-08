@@ -19,5 +19,6 @@ extern int call_suggestion_available;
 extern int call_suggestion_count;
 extern int call_suggestion_selected_index;
 extern char call_suggestion_matches[CALL_SUGGESTION_MAX][CALL_SUGGESTION_LEN];
+extern int app_debug_enabled;
 
 #endif

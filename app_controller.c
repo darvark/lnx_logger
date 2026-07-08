@@ -20,6 +20,8 @@ static char dxcc_text[128] = "";
 static char info_text[128] = "";
 static char display_info[128] = "";
 
+int app_debug_enabled = 0;
+
 int last_cq = 0;
 int last_itu = 0;
 int cty_update_in_progress = 0;
@@ -655,7 +657,17 @@ int app_controller_init(void) {
   qso_init();
   call_history_load_file("call_history.txt");
 
-  dxcluster_start();
+  if (app_debug_enabled) {
+    fprintf(stderr,
+            "[debug] app_controller_init: cluster_view=%d bandmap_view=%d, starting DXCluster\n",
+            cluster_view ? 1 : 0, bandmap_view ? 1 : 0);
+  }
+
+  if (dxcluster_start() != 0) {
+    snprintf(status_text, sizeof(status_text), "DXCluster start failed");
+    update_display_info();
+    return -1;
+  }
   update_display_info();
 
   return 0;
@@ -722,8 +734,9 @@ AppControllerEvent app_controller_handle_key(int key) {
   if (key == APP_KEY_NONE || key == APP_KEY_RESIZE)
     return APP_CTRL_EVENT_NONE;
 
-  if (key == APP_KEY_F10)
+  if (key == APP_KEY_F10) {
     return APP_CTRL_EVENT_EXIT;
+  }
 
   if (cty_update_in_progress)
     return APP_CTRL_EVENT_NONE;
@@ -764,14 +777,22 @@ AppControllerEvent app_controller_handle_key(int key) {
   if (key == APP_KEY_F5) {
     cluster_view = !cluster_view;
     snprintf(status_text, sizeof(status_text),
-             cluster_view ? "DXCluster window enabled"
-                          : "DXCluster window disabled");
+             cluster_view ? "DXCluster window shown"
+                          : "DXCluster window hidden");
+    if (app_debug_enabled) {
+      fprintf(stderr, "[debug] APP_KEY_F5: cluster_view=%d\n",
+              cluster_view ? 1 : 0);
+    }
   }
 
   if (key == APP_KEY_F8) {
     bandmap_view = !bandmap_view;
     snprintf(status_text, sizeof(status_text),
              bandmap_view ? "Bandmap visible" : "Bandmap hidden");
+    if (app_debug_enabled) {
+      fprintf(stderr, "[debug] APP_KEY_F8: bandmap_view=%d\n",
+              bandmap_view ? 1 : 0);
+    }
   }
 
   if (key == APP_KEY_F7) {

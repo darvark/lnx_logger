@@ -942,9 +942,30 @@ private:
  * @return Qt application exit code.
  */
 int main(int argc, char **argv) {
-  QApplication app(argc, argv);
+  int qt_argc = 1;
+  for (int i = 1; i < argc; i++) {
+    if (std::strcmp(argv[i], "--debug") == 0) {
+      app_debug_enabled = 1;
+      continue;
+    }
 
-  app_controller_init();
+    argv[qt_argc++] = argv[i];
+  }
+  argv[qt_argc] = nullptr;
+
+  QApplication app(qt_argc, argv);
+
+  if (app_debug_enabled) {
+    std::fprintf(stderr, "[debug] logger starting with --debug\n");
+  }
+
+  if (app_controller_init() != 0) {
+    if (app_debug_enabled) {
+      std::fprintf(stderr, "[debug] app_controller_init returned failure\n");
+    }
+    QMessageBox::warning(nullptr, "Logger",
+                         "DXCluster startup failed. The app will continue without it.");
+  }
 
   LoggerQtWindow window;
   window.show();
