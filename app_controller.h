@@ -37,6 +37,10 @@ typedef enum {
 
 typedef struct {
   const char *input;
+  const char *input_call;
+  const char *input_rst;
+  const char *input_comments;
+  int active_input_field;
   const char *status;
   const char *dxcc;
   const char *info;
@@ -82,6 +86,13 @@ AppControllerEvent app_controller_handle_key(int key);
  * @return Nothing.
  */
 void app_controller_perform_cty_update(void);
+
+/*
+ * Get current operating frequency in kHz used for split-entry QSOs.
+ *
+ * @return Current frequency in kHz.
+ */
+int app_controller_get_active_frequency_khz(void);
 
 #ifdef __cplusplus
 }

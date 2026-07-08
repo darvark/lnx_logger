@@ -9,7 +9,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 enable_testing()
 
 find_package(Threads REQUIRED)
+find_package(PkgConfig QUIET)
 find_library(SQLITE3_LIBRARY NAMES sqlite3 sqlite3.so.0 PATHS /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu REQUIRED)
+
+set(HAMLIB_FOUND FALSE)
+if (PkgConfig_FOUND)
+    pkg_check_modules(HAMLIB QUIET hamlib)
+    if (HAMLIB_FOUND)
+        message(STATUS "Hamlib found via pkg-config: ${HAMLIB_VERSION}")
+    endif()
+endif()
+
+if (NOT HAMLIB_FOUND)
+    find_path(HAMLIB_INCLUDE_DIR hamlib/rig.h)
+    find_library(HAMLIB_LIBRARY NAMES hamlib)
+    if (HAMLIB_INCLUDE_DIR AND HAMLIB_LIBRARY)
+        set(HAMLIB_FOUND TRUE)
+        set(HAMLIB_INCLUDE_DIRS ${HAMLIB_INCLUDE_DIR})
+        set(HAMLIB_LIBRARIES ${HAMLIB_LIBRARY})
+        message(STATUS "Hamlib found via fallback search")
+    endif()
+endif()
 
 include_directories(src)
 
@@ -21,6 +41,7 @@ add_executable(logger
     qso.c
     config.c
     cty.c
+    cat.c
     dxcluster.c
     export.c
     stats.c
@@ -31,6 +52,11 @@ target_include_directories(logger
     PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
+
+if (HAMLIB_FOUND)
+    target_compile_definitions(logger PRIVATE HAVE_HAMLIB=1)
+    target_include_directories(logger PRIVATE ${HAMLIB_INCLUDE_DIRS})
+endif()
 
 set(_qt_package "")
 
@@ -54,6 +80,10 @@ target_link_libraries(logger
     m
     ${SQLITE3_LIBRARY}
 )
+
+if (HAMLIB_FOUND)
+    target_link_libraries(logger ${HAMLIB_LIBRARIES})
+endif()
 
 add_executable(regression_tests
     tests/regression/regression_tests.c
@@ -87,6 +117,7 @@ add_test(NAME regression_tests COMMAND regression_tests)
 add_executable(unit_tests
     tests/unit/unit_tests.c
     app_controller.c
+    cat.c
     db.c
     suggestion.c
     config.c

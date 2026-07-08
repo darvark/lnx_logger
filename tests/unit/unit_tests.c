@@ -343,7 +343,7 @@ static void test_export_csv_adif(const char *tmp_dir) {
   expect_true(adi != NULL, "ADIF output should be readable");
 
   if (csv) {
-    expect_true(strstr(csv, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY") != NULL,
+    expect_true(strstr(csv, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COMMENTS,COUNTRY") != NULL,
                 "CSV header exists");
     expect_true(strstr(csv, "SP9ABC") != NULL, "CSV contains SP9ABC");
     expect_true(strstr(csv, "K1ABC") == NULL,
@@ -493,6 +493,8 @@ static void test_app_controller_key_flow(void) {
   app_controller_init();
   app_controller_get_render_state(&state);
   expect_true(state.status != NULL, "controller render state status is present");
+  expect_int_eq(state.active_input_field, 0,
+                "controller starts with CALL input field active");
   if (state.status)
     expect_str_eq(state.status, "Ready", "controller starts with Ready status");
 
@@ -503,7 +505,7 @@ static void test_app_controller_key_flow(void) {
   app_controller_get_render_state(&state);
   expect_true(state.status != NULL, "controller status after F1 is present");
   if (state.status)
-    expect_true(strstr(state.status, "CALL FREQ RST") != NULL,
+    expect_true(strstr(state.status, "CALL RST COMMENTS") != NULL,
                 "F1 updates status help text");
 
   ev = app_controller_handle_key(APP_KEY_F4);
@@ -554,6 +556,42 @@ static void send_controller_text(const char *text) {
     app_controller_handle_key((unsigned char)*p);
 
   app_controller_handle_key(APP_KEY_ENTER);
+}
+
+static void send_controller_chars(const char *text) {
+  if (!text)
+    return;
+
+  for (const char *p = text; *p; p++)
+    app_controller_handle_key((unsigned char)*p);
+}
+
+static void test_manual_frequency_entry_from_call_field(void) {
+  AppRenderState state;
+
+  app_controller_init();
+  app_controller_handle_key(APP_KEY_F2);
+  expect_int_eq(qso_count, 0, "manual freq test starts from clean log");
+
+  send_controller_text("14074");
+  app_controller_get_render_state(&state);
+  expect_int_eq(qso_count, 0,
+                "manual frequency entry should not create a QSO");
+  expect_true(state.status != NULL, "manual frequency status should exist");
+  if (state.status)
+    expect_true(strstr(state.status, "Frequency set to 14074 kHz") != NULL,
+                "numeric call field should set manual frequency");
+
+  send_controller_chars("SP9ABC");
+  app_controller_handle_key(APP_KEY_SPACE);
+  send_controller_chars("599");
+  app_controller_handle_key(APP_KEY_ENTER);
+
+  expect_int_eq(qso_count, 1, "split entry should create one QSO");
+  expect_int_eq(logbook[0].freq, 14074,
+                "split entry should use manually selected frequency");
+
+  app_controller_shutdown();
 }
 
 static void test_named_log_commands(void) {
@@ -624,6 +662,7 @@ int main(void) {
   test_app_controller_shutdown_stops_cluster();
   test_call_suggestions();
   test_app_controller_key_flow();
+  test_manual_frequency_entry_from_call_field();
   test_named_log_commands();
 
   if (g_failures == 0) {

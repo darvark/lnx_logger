@@ -80,6 +80,32 @@ static int validate_rst(const char *rst) {
   return 1;
 }
 
+/*
+ * Copy comments text into the QSO record, filtering control characters.
+ *
+ * @param dst Destination comments buffer.
+ * @param dst_size Destination buffer size.
+ * @param src Source comments text.
+ * @return Nothing.
+ */
+static void sanitize_comments(char *dst, size_t dst_size, const char *src) {
+  if (!dst || dst_size < 2)
+    return;
+
+  dst[0] = 0;
+  if (!src)
+    return;
+
+  size_t out = 0;
+  for (size_t i = 0; src[i] && out < dst_size - 1; i++) {
+    unsigned char c = (unsigned char)src[i];
+    if (c >= 32 && c != 127)
+      dst[out++] = (char)c;
+  }
+
+  dst[out] = 0;
+}
+
 /* ------------------------------------------------ */
 
 /*
@@ -198,7 +224,7 @@ int qso_add(const char *line, char *status, size_t status_size) {
   char *call = strtok(buf, " ");
   char *freq = strtok(NULL, " ");
   char *rst = strtok(NULL, " ");
-  char *mode = strtok(NULL, " ");
+  (void)strtok(NULL, " ");
 
   if (!call || !freq || !rst) {
     snprintf(status, status_size, "Bad format");
@@ -229,6 +255,7 @@ int qso_add(const char *line, char *status, size_t status_size) {
 
   strcpy(q.call, call);
   strcpy(q.rst, rst);
+  q.comments[0] = 0;
   q.freq = f;
 
   detect_band(f, q.band);
@@ -238,6 +265,90 @@ int qso_add(const char *line, char *status, size_t status_size) {
 
   const CtyEntry *cty = cty_lookup(call);
 
+  if (cty) {
+    strncpy(q.country, cty->country, sizeof(q.country) - 1);
+    q.cq_zone = cty->cq_zone;
+    q.itu_zone = cty->itu_zone;
+  } else {
+    strcpy(q.country, "UNKNOWN");
+  }
+
+  long long db_id = 0;
+  if (db_insert_qso(&q, &db_id) == 0)
+    q.db_id = db_id;
+
+  logbook[qso_count] = q;
+  qso_count++;
+
+  snprintf(status, status_size, "QSO OK");
+  return qso_count - 1;
+}
+
+/* ------------------------------------------------ */
+
+/*
+ * Parse, validate, and store one QSO from split entry fields.
+ *
+ * @param call Callsign field.
+ * @param rst Signal report field.
+ * @param comments Free-form comments field.
+ * @param status Destination buffer for a status message.
+ * @param status_size Size of the status buffer in bytes.
+ * @return Index of the inserted QSO, or -1 on failure.
+ */
+int qso_add_fields(const char *call, int freq_khz, const char *rst,
+                   const char *comments, char *status, size_t status_size) {
+  if (!call || !rst) {
+    if (status && status_size)
+      snprintf(status, status_size, "Bad format");
+    return -1;
+  }
+
+  char call_buf[32] = {0};
+  snprintf(call_buf, sizeof(call_buf), "%s", call);
+
+  for (int i = 0; call_buf[i]; i++)
+    call_buf[i] = toupper((unsigned char)call_buf[i]);
+
+  char *slash = strchr(call_buf, '/');
+  if (slash)
+    *slash = 0;
+
+  if (!validate_callsign(call_buf)) {
+    snprintf(status, status_size, "Invalid callsign");
+    return -1;
+  }
+
+  if (!validate_rst(rst)) {
+    snprintf(status, status_size, "Invalid RST");
+    return -1;
+  }
+
+  if (!validate_frequency(freq_khz)) {
+    snprintf(status, status_size, "Invalid frequency");
+    return -1;
+  }
+
+  if (qso_count >= MAX_QSO) {
+    snprintf(status, status_size, "Logbook full");
+    return -1;
+  }
+
+  QSO q;
+  memset(&q, 0, sizeof(q));
+
+  strcpy(q.call, call_buf);
+  strcpy(q.rst, rst);
+  sanitize_comments(q.comments, sizeof(q.comments), comments);
+
+  q.freq = freq_khz;
+
+  detect_band(q.freq, q.band);
+  detect_mode(q.freq, q.mode);
+
+  fill_utc(&q);
+
+  const CtyEntry *cty = cty_lookup(call_buf);
   if (cty) {
     strncpy(q.country, cty->country, sizeof(q.country) - 1);
     q.cq_zone = cty->cq_zone;

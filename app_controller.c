@@ -1,5 +1,6 @@
 #include "app_controller.h"
 
+#include "cat.h"
 #include "config.h"
 #include "db.h"
 #include "cty.h"
@@ -14,6 +15,18 @@
 
 static char input_buffer[256];
 static int input_len = 0;
+
+enum {
+  ENTRY_FIELD_CALL = 0,
+  ENTRY_FIELD_RST = 1,
+  ENTRY_FIELD_COMMENTS = 2,
+  ENTRY_FIELD_COUNT = 3
+};
+
+static char entry_call[32];
+static char entry_rst[8];
+static char entry_comments[128];
+static int active_entry_field = ENTRY_FIELD_CALL;
 
 static char status_text[128] = "Ready";
 static char dxcc_text[128] = "";
@@ -39,10 +52,147 @@ static CallSuggestionList call_suggestions;
 static bool cluster_view = true;
 static int cluster_scroll = 0;
 static bool export_prompt_mode = false;
+static int manual_entry_freq_khz = 14074;
 
 #define NAMED_LOG_LIST_MAX 12
 
 static void sync_callsign_suggestion_state(void);
+
+static void update_composed_input_line(void);
+
+/*
+ * Reset split QSO entry fields and move focus to CALL.
+ *
+ * @return Nothing.
+ */
+static void clear_entry_fields(void) {
+  entry_call[0] = 0;
+  entry_rst[0] = 0;
+  entry_comments[0] = 0;
+  active_entry_field = ENTRY_FIELD_CALL;
+  update_composed_input_line();
+}
+
+/*
+ * Build a display-only composed input line from split entry fields.
+ *
+ * @return Nothing.
+ */
+static void update_composed_input_line(void) {
+  if (entry_call[0] || entry_rst[0] || entry_comments[0]) {
+    snprintf(input_buffer, sizeof(input_buffer), "%s %s %s", entry_call,
+             entry_rst, entry_comments);
+  } else {
+    input_buffer[0] = 0;
+  }
+
+  input_len = (int)strlen(input_buffer);
+}
+
+/*
+ * Return writable pointer and size for the currently active entry field.
+ *
+ * @param out_size Destination for selected field capacity.
+ * @return Pointer to active field buffer.
+ */
+static char *active_field_buffer(size_t *out_size) {
+  if (out_size)
+    *out_size = 0;
+
+  switch (active_entry_field) {
+  case ENTRY_FIELD_CALL:
+    if (out_size)
+      *out_size = sizeof(entry_call);
+    return entry_call;
+  case ENTRY_FIELD_RST:
+    if (out_size)
+      *out_size = sizeof(entry_rst);
+    return entry_rst;
+  case ENTRY_FIELD_COMMENTS:
+  default:
+    if (out_size)
+      *out_size = sizeof(entry_comments);
+    return entry_comments;
+  }
+}
+
+/*
+ * Move editing focus to the next split entry field.
+ *
+ * @return Nothing.
+ */
+static void advance_entry_field(void) {
+  active_entry_field = (active_entry_field + 1) % ENTRY_FIELD_COUNT;
+}
+
+/*
+ * Append one printable character to the active split entry field.
+ *
+ * @param key Printable key code.
+ * @return 1 on success, or 0 if the field is full.
+ */
+static int append_to_active_field(int key) {
+  size_t size = 0;
+  char *field = active_field_buffer(&size);
+
+  if (!field || size < 2)
+    return 0;
+
+  size_t len = strlen(field);
+  if (len >= size - 1)
+    return 0;
+
+  field[len] = (char)key;
+  field[len + 1] = 0;
+  return 1;
+}
+
+/*
+ * Delete one character from the active split entry field.
+ *
+ * @return 1 if a character was removed, otherwise 0.
+ */
+static int backspace_active_field(void) {
+  char *field = active_field_buffer(NULL);
+  if (!field)
+    return 0;
+
+  size_t len = strlen(field);
+  if (len == 0)
+    return 0;
+
+  field[len - 1] = 0;
+  return 1;
+}
+
+/*
+ * Build one command line from split fields.
+ *
+ * @param out Destination buffer.
+ * @param out_size Destination size in bytes.
+ * @return Nothing.
+ */
+static void compose_command_line(char *out, size_t out_size) {
+  if (!out || out_size < 2)
+    return;
+
+  out[0] = 0;
+
+  if (!entry_call[0])
+    return;
+
+  snprintf(out, out_size, "%s", entry_call);
+
+  if (entry_rst[0]) {
+    strncat(out, " ", out_size - strlen(out) - 1);
+    strncat(out, entry_rst, out_size - strlen(out) - 1);
+  }
+
+  if (entry_comments[0]) {
+    strncat(out, " ", out_size - strlen(out) - 1);
+    strncat(out, entry_comments, out_size - strlen(out) - 1);
+  }
+}
 
 /*
  * Extract the first callsign-like token from an input string.
@@ -176,9 +326,7 @@ static void reset_loaded_log_state(void) {
   qso_init();
   call_history_load_file("call_history.txt");
   clear_callsign_suggestion();
-
-  input_buffer[0] = 0;
-  input_len = 0;
+  clear_entry_fields();
   export_prompt_mode = false;
   dxcc_text[0] = 0;
   info_text[0] = 0;
@@ -205,6 +353,42 @@ static int is_digits_only(const char *s) {
   }
 
   return 1;
+}
+
+/*
+ * Validate frequency range used in QSO input.
+ *
+ * @param freq_khz Frequency in kHz.
+ * @return 1 if valid, otherwise 0.
+ */
+static int is_valid_frequency_khz(int freq_khz) {
+  if (freq_khz < 1000)
+    return 0;
+
+  if (freq_khz > 500000)
+    return 0;
+
+  return 1;
+}
+
+/*
+ * Resolve QSO frequency, preferring live CAT over manual fallback.
+ *
+ * @return Frequency in kHz.
+ */
+static int resolve_qso_frequency_khz(void) {
+  int cat_freq_khz = 0;
+
+  if (cat_is_connected() && cat_get_frequency_khz(&cat_freq_khz) == 0 &&
+      is_valid_frequency_khz(cat_freq_khz)) {
+    return cat_freq_khz;
+  }
+
+  return manual_entry_freq_khz;
+}
+
+int app_controller_get_active_frequency_khz(void) {
+  return resolve_qso_frequency_khz();
 }
 
 /*
@@ -634,6 +818,7 @@ static void update_display_info(void) {
 int app_controller_init(void) {
   memset(input_buffer, 0, sizeof(input_buffer));
   input_len = 0;
+  clear_entry_fields();
   memset(call_history, 0, sizeof(call_history));
   call_history_count = 0;
   snprintf(status_text, sizeof(status_text), "Ready");
@@ -643,6 +828,7 @@ int app_controller_init(void) {
   cluster_view = true;
   cluster_scroll = 0;
   export_prompt_mode = false;
+  manual_entry_freq_khz = 14074;
   cty_update_in_progress = 0;
   last_cq = 0;
   last_itu = 0;
@@ -694,6 +880,10 @@ void app_controller_get_render_state(AppRenderState *out) {
   update_display_info();
 
   out->input = input_buffer;
+  out->input_call = entry_call;
+  out->input_rst = entry_rst;
+  out->input_comments = entry_comments;
+  out->active_input_field = active_entry_field;
   out->status = status_text;
   out->dxcc = dxcc_text;
   out->info = display_info;
@@ -766,6 +956,13 @@ AppControllerEvent app_controller_handle_key(int key) {
     return APP_CTRL_EVENT_NONE;
   }
 
+  if (!export_prompt_mode && key == APP_KEY_ESC) {
+    clear_entry_fields();
+    clear_callsign_suggestion();
+    dxcc_text[0] = 0;
+    return APP_CTRL_EVENT_NONE;
+  }
+
   if (key == APP_KEY_F6) {
     stats_update();
     snprintf(status_text, sizeof(status_text), "STATS updated");
@@ -791,53 +988,62 @@ AppControllerEvent app_controller_handle_key(int key) {
 
   if (key == APP_KEY_F1) {
     snprintf(status_text, sizeof(status_text),
-             "CALL FREQ RST [MODE] | F2 new | F3 previous | F5 DXC on/off");
+             "CALL RST COMMENTS | Space: next field | F2 new | F3 previous");
     return APP_CTRL_EVENT_NONE;
   }
 
   if (!export_prompt_mode && key == APP_KEY_TAB) {
-    if (apply_callsign_suggestion(input_buffer, &input_len)) {
-      update_dxcc_from_input(input_buffer);
-      refresh_callsign_suggestion(input_buffer);
+    if (active_entry_field == ENTRY_FIELD_CALL) {
+      const char *selected = call_suggestion_selected(&call_suggestions);
+      if (selected) {
+        snprintf(entry_call, sizeof(entry_call), "%s", selected);
+        update_dxcc_from_input(entry_call);
+        refresh_callsign_suggestion(entry_call);
+      }
     }
+    update_composed_input_line();
     return APP_CTRL_EVENT_NONE;
   }
 
-  if (!export_prompt_mode && call_suggestion_available && key == APP_KEY_UP) {
+  if (!export_prompt_mode && active_entry_field == ENTRY_FIELD_CALL &&
+      call_suggestion_available && key == APP_KEY_UP) {
     call_suggestion_select_prev(&call_suggestions);
     sync_callsign_suggestion_state();
     return APP_CTRL_EVENT_NONE;
   }
 
-  if (!export_prompt_mode && call_suggestion_available && key == APP_KEY_DOWN) {
+  if (!export_prompt_mode && active_entry_field == ENTRY_FIELD_CALL &&
+      call_suggestion_available && key == APP_KEY_DOWN) {
     call_suggestion_select_next(&call_suggestions);
     sync_callsign_suggestion_state();
     return APP_CTRL_EVENT_NONE;
   }
 
-  if (!export_prompt_mode && call_suggestion_available && key == APP_KEY_SPACE) {
-    if (apply_callsign_suggestion(input_buffer, &input_len)) {
-      if (input_len < (int)sizeof(input_buffer) - 1 &&
-          (input_len == 0 || input_buffer[input_len - 1] != ' ')) {
-        input_buffer[input_len++] = ' ';
-        input_buffer[input_len] = 0;
-      }
+  if (!export_prompt_mode && key == APP_KEY_SPACE) {
+    if (active_entry_field == ENTRY_FIELD_CALL && call_suggestion_available) {
+      const char *selected = call_suggestion_selected(&call_suggestions);
+      if (selected)
+        snprintf(entry_call, sizeof(entry_call), "%s", selected);
     }
 
-    update_dxcc_from_input(input_buffer);
-    refresh_callsign_suggestion(input_buffer);
+    advance_entry_field();
+    update_dxcc_from_input(entry_call);
+    refresh_callsign_suggestion(entry_call);
+    update_composed_input_line();
     return APP_CTRL_EVENT_NONE;
   }
 
   if (key == APP_KEY_BACKSPACE) {
-    if (input_len > 0)
-      input_buffer[--input_len] = 0;
+    if (export_prompt_mode) {
+      if (input_len > 0)
+        input_buffer[--input_len] = 0;
+      return APP_CTRL_EVENT_NONE;
+    }
 
-    if (!export_prompt_mode)
-      update_dxcc_from_input(input_buffer);
-
-    if (!export_prompt_mode)
-      refresh_callsign_suggestion(input_buffer);
+    backspace_active_field();
+    update_composed_input_line();
+    update_dxcc_from_input(entry_call);
+    refresh_callsign_suggestion(entry_call);
     return APP_CTRL_EVENT_NONE;
   }
 
@@ -858,35 +1064,95 @@ AppControllerEvent app_controller_handle_key(int key) {
       return APP_CTRL_EVENT_NONE;
     }
 
-    if (strlen(input_buffer)) {
-      if (strcmp(input_buffer, "quit") == 0) {
+    update_composed_input_line();
+
+    if (entry_call[0] || entry_rst[0] || entry_comments[0]) {
+      char command_line[256] = {0};
+      compose_command_line(command_line, sizeof(command_line));
+
+      if (strcmp(command_line, "quit") == 0) {
         return APP_CTRL_EVENT_EXIT;
       }
 
-      if (!process_command(input_buffer)) {
-        call_history_record_from_input(input_buffer);
-        process_qso(input_buffer);
+      if (!process_command(command_line)) {
+        if (entry_call[0] && !entry_rst[0] && !entry_comments[0] &&
+            is_digits_only(entry_call)) {
+          const int freq_khz = atoi(entry_call);
+
+          if (!is_valid_frequency_khz(freq_khz)) {
+            snprintf(status_text, sizeof(status_text), "Invalid frequency");
+          } else {
+            manual_entry_freq_khz = freq_khz;
+
+            if (cat_is_connected()) {
+              if (cat_set_frequency_khz(freq_khz) == 0) {
+                snprintf(status_text, sizeof(status_text),
+                         "Frequency set to %d kHz (manual + CAT)", freq_khz);
+              } else {
+                snprintf(status_text, sizeof(status_text),
+                         "Frequency set to %d kHz (manual)", freq_khz);
+              }
+            } else {
+              snprintf(status_text, sizeof(status_text),
+                       "Frequency set to %d kHz (manual)", freq_khz);
+            }
+          }
+        } else if (entry_call[0] && entry_rst[0] && entry_comments[0] &&
+            strlen(entry_rst) >= 4 && is_digits_only(entry_rst) &&
+            is_digits_only(entry_comments)) {
+          process_qso(command_line);
+          call_history_record_from_input(command_line);
+        } else if (entry_call[0] && entry_rst[0]) {
+          const int qso_freq_khz = resolve_qso_frequency_khz();
+          int idx = qso_add_fields(entry_call, qso_freq_khz, entry_rst,
+                                   entry_comments, status_text,
+                                   sizeof(status_text));
+          if (idx >= 0) {
+            QSO *q = &logbook[idx];
+            snprintf(info_text, sizeof(info_text), "%s %s", q->band, q->mode);
+
+            if (q->country[0] && strcmp(q->country, "UNKNOWN") != 0) {
+              snprintf(dxcc_text, sizeof(dxcc_text), "%s", q->country);
+              last_cq = q->cq_zone;
+              last_itu = q->itu_zone;
+            } else {
+              snprintf(dxcc_text, sizeof(dxcc_text), "Unknown");
+              last_cq = 0;
+              last_itu = 0;
+            }
+
+            stats_update();
+            call_history_record_from_input(entry_call);
+          }
+        } else {
+          snprintf(status_text, sizeof(status_text), "Bad format");
+        }
       }
     }
 
-    input_buffer[0] = 0;
-    input_len = 0;
+    clear_entry_fields();
     clear_callsign_suggestion();
     return APP_CTRL_EVENT_NONE;
   }
 
   if (key >= 0 && key <= 255 && isprint(key)) {
-    if (input_len < (int)sizeof(input_buffer) - 1) {
-      input_buffer[input_len++] = (char)key;
-      input_buffer[input_len] = 0;
+    if (export_prompt_mode) {
+      if (input_len < (int)sizeof(input_buffer) - 1) {
+        input_buffer[input_len++] = (char)key;
+        input_buffer[input_len] = 0;
+      }
+      return APP_CTRL_EVENT_NONE;
     }
 
-    if (!export_prompt_mode)
-      update_dxcc_from_input(input_buffer);
-
-    if (!export_prompt_mode)
-      refresh_callsign_suggestion(input_buffer);
+    if (append_to_active_field(key)) {
+      update_composed_input_line();
+      update_dxcc_from_input(entry_call);
+      refresh_callsign_suggestion(entry_call);
+    }
   }
+
+  if (!export_prompt_mode)
+    update_composed_input_line();
 
   return APP_CTRL_EVENT_NONE;
 }

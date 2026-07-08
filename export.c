@@ -16,7 +16,7 @@ int export_csv(const char *filename) {
   if (!f)
     return -1;
 
-  fprintf(f, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY\n");
+  fprintf(f, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COMMENTS,COUNTRY\n");
 
   for (int i = 0; i < qso_count; i++) {
     QSO *q = &logbook[i];
@@ -24,8 +24,8 @@ int export_csv(const char *filename) {
     if (q->invalid)
       continue;
 
-    fprintf(f, "%s,%s,%s,%d,%s,%s,%s,%s\n", q->date, q->utc, q->call, q->freq,
-            q->band, q->mode, q->rst, q->country);
+        fprintf(f, "%s,%s,%s,%d,%s,%s,%s,%s,%s\n", q->date, q->utc, q->call,
+          q->freq, q->band, q->mode, q->rst, q->comments, q->country);
   }
 
   fclose(f);
@@ -63,6 +63,9 @@ int export_adif(const char *filename) {
     fprintf(f, "<MODE:%zu>%s", strlen(q->mode), q->mode);
     fprintf(f, "<RST_SENT:%zu>%s", strlen(q->rst), q->rst);
     fprintf(f, "<RST_RCVD:%zu>%s", strlen(q->rst), q->rst);
+    if (strlen(q->comments)) {
+      fprintf(f, "<COMMENT:%zu>%s", strlen(q->comments), q->comments);
+    }
 
     if (strlen(q->country)) {
       fprintf(f, "<COUNTRY:%zu>%s", strlen(q->country), q->country);

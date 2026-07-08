@@ -342,6 +342,7 @@ static int ensure_open(void) {
           "band TEXT NOT NULL,"
           "mode TEXT NOT NULL,"
           "rst TEXT NOT NULL,"
+          "comments TEXT NOT NULL DEFAULT '',"
           "country TEXT NOT NULL,"
           "cq_zone INTEGER NOT NULL,"
           "itu_zone INTEGER NOT NULL,"
@@ -367,6 +368,7 @@ static int ensure_open(void) {
           "band TEXT NOT NULL,"
           "mode TEXT NOT NULL,"
           "rst TEXT NOT NULL,"
+          "comments TEXT NOT NULL DEFAULT '',"
           "country TEXT NOT NULL,"
           "cq_zone INTEGER NOT NULL,"
           "itu_zone INTEGER NOT NULL,"
@@ -407,6 +409,7 @@ static int ensure_open(void) {
           "band TEXT NOT NULL,"
           "mode TEXT NOT NULL,"
           "rst TEXT NOT NULL,"
+          "comments TEXT NOT NULL DEFAULT '',"
           "country TEXT NOT NULL,"
           "cq_zone INTEGER NOT NULL,"
           "itu_zone INTEGER NOT NULL,"
@@ -424,6 +427,11 @@ static int ensure_open(void) {
 
   if (!table_has_column("qso", "logbook_id")) {
     if (exec_sql_checked("ALTER TABLE qso ADD COLUMN logbook_id INTEGER NOT NULL DEFAULT 1;") != 0)
+      return -1;
+  }
+
+  if (!table_has_column("qso", "comments")) {
+    if (exec_sql_checked("ALTER TABLE qso ADD COLUMN comments TEXT NOT NULL DEFAULT '';") != 0)
       return -1;
   }
 
@@ -589,7 +597,7 @@ int db_load_qsos(QSO *logbook, int max_qso, long long *ids, int *out_count) {
 
   sqlite3_stmt *stmt = NULL;
   if (prepare_stmt(&stmt,
-                   "SELECT id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid "
+                   "SELECT id,date,utc,call,freq,band,mode,rst,comments,country,cq_zone,itu_zone,invalid "
                    "FROM qso WHERE logbook_id = ? ORDER BY id ASC;") != SQLITE_OK)
     return -1;
 
@@ -608,10 +616,11 @@ int db_load_qsos(QSO *logbook, int max_qso, long long *ids, int *out_count) {
     snprintf(q->band, sizeof(q->band), "%s", (const char *)sqlite3_column_text(stmt, 5));
     snprintf(q->mode, sizeof(q->mode), "%s", (const char *)sqlite3_column_text(stmt, 6));
     snprintf(q->rst, sizeof(q->rst), "%s", (const char *)sqlite3_column_text(stmt, 7));
-    snprintf(q->country, sizeof(q->country), "%s", (const char *)sqlite3_column_text(stmt, 8));
-    q->cq_zone = sqlite3_column_int(stmt, 9);
-    q->itu_zone = sqlite3_column_int(stmt, 10);
-    q->invalid = sqlite3_column_int(stmt, 11) != 0;
+    snprintf(q->comments, sizeof(q->comments), "%s", (const char *)sqlite3_column_text(stmt, 8));
+    snprintf(q->country, sizeof(q->country), "%s", (const char *)sqlite3_column_text(stmt, 9));
+    q->cq_zone = sqlite3_column_int(stmt, 10);
+    q->itu_zone = sqlite3_column_int(stmt, 11);
+    q->invalid = sqlite3_column_int(stmt, 12) != 0;
 
     if (ids)
       ids[count] = q->db_id;
@@ -650,8 +659,8 @@ int db_insert_qso(const QSO *qso, long long *out_id) {
 
   sqlite3_stmt *stmt = NULL;
   if (prepare_stmt(&stmt,
-                   "INSERT INTO qso (logbook_id,date,utc,call,freq,band,mode,rst,country,cq_zone,itu_zone,invalid) "
-                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);") != SQLITE_OK)
+                   "INSERT INTO qso (logbook_id,date,utc,call,freq,band,mode,rst,comments,country,cq_zone,itu_zone,invalid) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);") != SQLITE_OK)
     return -1;
 
   sqlite3_bind_int(stmt, 1, logbook_id);
@@ -662,10 +671,11 @@ int db_insert_qso(const QSO *qso, long long *out_id) {
   sqlite3_bind_text(stmt, 6, qso->band, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 7, qso->mode, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 8, qso->rst, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 9, qso->country, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmt, 10, qso->cq_zone);
-  sqlite3_bind_int(stmt, 11, qso->itu_zone);
-  sqlite3_bind_int(stmt, 12, qso->invalid ? 1 : 0);
+  sqlite3_bind_text(stmt, 9, qso->comments, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 10, qso->country, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 11, qso->cq_zone);
+  sqlite3_bind_int(stmt, 12, qso->itu_zone);
+  sqlite3_bind_int(stmt, 13, qso->invalid ? 1 : 0);
 
   int rc = sqlite3_step(stmt);
   if (rc != SQLITE_DONE) {
@@ -1104,11 +1114,12 @@ static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {
     const char *band = (const char *)sqlite3_column_text(stmt, 4);
     const char *mode = (const char *)sqlite3_column_text(stmt, 5);
     const char *rst = (const char *)sqlite3_column_text(stmt, 6);
-    const char *country = (const char *)sqlite3_column_text(stmt, 7);
+    const char *comments = (const char *)sqlite3_column_text(stmt, 7);
+    const char *country = (const char *)sqlite3_column_text(stmt, 8);
 
     if (!adif_mode) {
-      fprintf(f, "%s,%s,%s,%d,%s,%s,%s,%s\n", date, utc, call, freq, band,
-              mode, rst, country);
+      fprintf(f, "%s,%s,%s,%d,%s,%s,%s,%s,%s\n", date, utc, call, freq, band,
+              mode, rst, comments ? comments : "", country);
     } else {
       fprintf(f, "<CALL:%zu>%s", strlen(call), call);
       fprintf(f, "<QSO_DATE:8>%s", date);
@@ -1118,6 +1129,8 @@ static int export_qso_rows(const char *sql, FILE *f, int adif_mode) {
       fprintf(f, "<MODE:%zu>%s", strlen(mode), mode);
       fprintf(f, "<RST_SENT:%zu>%s", strlen(rst), rst);
       fprintf(f, "<RST_RCVD:%zu>%s", strlen(rst), rst);
+      if (comments && comments[0])
+        fprintf(f, "<COMMENT:%zu>%s", strlen(comments), comments);
       if (country && country[0])
         fprintf(f, "<COUNTRY:%zu>%s", strlen(country), country);
       fprintf(f, "<EOR>\n");
@@ -1150,11 +1163,11 @@ int db_export_csv(const char *filename) {
     return -1;
   }
 
-  fprintf(f, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY\n");
+  fprintf(f, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COMMENTS,COUNTRY\n");
 
   char sql[256];
   snprintf(sql, sizeof(sql),
-           "SELECT date,utc,call,freq,band,mode,rst,country FROM qso "
+           "SELECT date,utc,call,freq,band,mode,rst,comments,country FROM qso "
            "WHERE logbook_id = %d AND invalid = 0 ORDER BY id ASC;",
            logbook_id);
 
@@ -1191,7 +1204,7 @@ int db_export_adif(const char *filename) {
 
   char sql[256];
   snprintf(sql, sizeof(sql),
-           "SELECT date,utc,call,freq,band,mode,rst,country FROM qso "
+           "SELECT date,utc,call,freq,band,mode,rst,comments,country FROM qso "
            "WHERE logbook_id = %d AND invalid = 0 ORDER BY id ASC;",
            logbook_id);
 

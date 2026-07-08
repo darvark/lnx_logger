@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFrame>
 #include <QFontDatabase>
 #include <QFontMetrics>
@@ -14,6 +15,8 @@
 #include <QListWidget>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QShowEvent>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -27,6 +30,8 @@
 
 extern "C" {
 #include "app_controller.h"
+#include "cat.h"
+#include "config.h"
 #include "db.h"
 #include "dxcluster.h"
 #include "globals.h"
@@ -74,6 +79,24 @@ int parse_spot_khz(const char *freq_text) {
 
   return (int)std::lround(value);
 }
+
+QString render_rst_sr(const QSO &q) {
+  const QString mode = QString::fromLatin1(q.mode);
+
+  QString rst_recv = QString::fromLatin1(q.rst);
+  if (rst_recv.isEmpty())
+    rst_recv = "59";
+
+  QString rst_sent;
+  if (mode == "CW")
+    rst_sent = "599";
+  else if (mode == "SSB")
+    rst_sent = "59";
+  else
+    rst_sent = (rst_recv.size() >= 3) ? "599" : "59";
+
+  return QString("%1/%2").arg(rst_sent, rst_recv);
+}
 } // namespace
 
 class LoggerQtWindow : public QMainWindow {
@@ -106,9 +129,9 @@ public:
     log_layout->setContentsMargins(6, 24, 6, 6);
     log_layout->setSpacing(2);
     log_table_ = new QTableWidget(log_group_);
-    log_table_->setColumnCount(8);
+    log_table_->setColumnCount(9);
     log_table_->setHorizontalHeaderLabels(
-        {"Nr", "Date", "UTC", "Call", "Freq", "Band", "Mode", "RST"});
+      {"Nr", "Date", "UTC", "Call", "Freq", "Band", "Mode", "RST S/R", "Comments"});
     log_table_->verticalHeader()->setVisible(false);
     log_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     log_table_->setSelectionMode(QAbstractItemView::NoSelection);
@@ -142,14 +165,34 @@ public:
     input_panel_ = new QFrame(central);
     auto *input_layout = new QHBoxLayout(input_panel_);
     input_layout->setContentsMargins(8, 6, 8, 6);
-    input_label_ = new QLabel("CALL FREQ RST >", input_panel_);
-    input_edit_ = new QLineEdit(input_panel_);
-    input_edit_->setReadOnly(true);
-    input_edit_->setFocusPolicy(Qt::NoFocus);
-    input_layout->addWidget(input_label_);
-    input_layout->addWidget(input_edit_);
-    input_label_->setWordWrap(false);
-    input_edit_->setMinimumWidth(250);
+    input_call_label_ = new QLabel("Call", input_panel_);
+    input_call_edit_ = new QLineEdit(input_panel_);
+    input_rst_label_ = new QLabel("RST", input_panel_);
+    input_rst_edit_ = new QLineEdit(input_panel_);
+    input_comments_label_ = new QLabel("Comments", input_panel_);
+    input_comments_edit_ = new QLineEdit(input_panel_);
+
+    input_call_edit_->setReadOnly(true);
+    input_call_edit_->setFocusPolicy(Qt::NoFocus);
+    input_rst_edit_->setReadOnly(true);
+    input_rst_edit_->setFocusPolicy(Qt::NoFocus);
+    input_comments_edit_->setReadOnly(true);
+    input_comments_edit_->setFocusPolicy(Qt::NoFocus);
+
+    input_call_label_->setWordWrap(false);
+    input_rst_label_->setWordWrap(false);
+    input_comments_label_->setWordWrap(false);
+
+    input_call_edit_->setMinimumWidth(220);
+    input_rst_edit_->setMinimumWidth(90);
+    input_comments_edit_->setMinimumWidth(280);
+
+    input_layout->addWidget(input_call_label_);
+    input_layout->addWidget(input_call_edit_, 2);
+    input_layout->addWidget(input_rst_label_);
+    input_layout->addWidget(input_rst_edit_, 1);
+    input_layout->addWidget(input_comments_label_);
+    input_layout->addWidget(input_comments_edit_, 3);
     left_layout->addWidget(input_panel_);
 
     status_panel_ = new QFrame(central);
@@ -232,8 +275,98 @@ public:
     cluster_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     cluster_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     cluster_layout->addWidget(cluster_table_);
-    cluster_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    left_layout->addWidget(cluster_group_, 1);
+        cluster_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+        cat_group_ = new QGroupBox("CAT (Hamlib)", central);
+        cat_group_->setObjectName("catGroup");
+        auto *cat_layout = new QVBoxLayout(cat_group_);
+        cat_layout->setContentsMargins(6, 24, 6, 6);
+        cat_layout->setSpacing(4);
+
+        auto *cat_grid = new QGridLayout();
+        cat_grid->setContentsMargins(0, 0, 0, 0);
+        cat_grid->setHorizontalSpacing(8);
+        cat_grid->setVerticalSpacing(4);
+
+        int row = 0;
+        cat_grid->addWidget(new QLabel("Rig:", cat_group_), row, 0);
+        cat_rig_combo_ = new QComboBox(cat_group_);
+        cat_grid->addWidget(cat_rig_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Device:", cat_group_), row, 0);
+        cat_device_edit_ = new QLineEdit(cat_group_);
+        cat_device_edit_->setText(QString::fromLatin1(config.cat_device));
+        cat_grid->addWidget(cat_device_edit_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Baud:", cat_group_), row, 0);
+        cat_baud_combo_ = new QComboBox(cat_group_);
+        cat_baud_combo_->addItems({"1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"});
+        cat_baud_combo_->setEditable(true);
+        cat_baud_combo_->setCurrentText(QString::number(config.cat_baud));
+        cat_grid->addWidget(cat_baud_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Data bits:", cat_group_), row, 0);
+        cat_data_bits_combo_ = new QComboBox(cat_group_);
+        cat_data_bits_combo_->addItems({"5", "6", "7", "8"});
+        cat_data_bits_combo_->setCurrentText(QString::number(config.cat_data_bits));
+        cat_grid->addWidget(cat_data_bits_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Stop bits:", cat_group_), row, 0);
+        cat_stop_bits_combo_ = new QComboBox(cat_group_);
+        cat_stop_bits_combo_->addItems({"1", "2"});
+        cat_stop_bits_combo_->setCurrentText(QString::number(config.cat_stop_bits));
+        cat_grid->addWidget(cat_stop_bits_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Parity:", cat_group_), row, 0);
+        cat_parity_combo_ = new QComboBox(cat_group_);
+        cat_parity_combo_->addItems({"None", "Even", "Odd"});
+        cat_parity_combo_->setCurrentText(QString::fromLatin1(config.cat_parity));
+        cat_grid->addWidget(cat_parity_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Handshake:", cat_group_), row, 0);
+        cat_handshake_combo_ = new QComboBox(cat_group_);
+        cat_handshake_combo_->addItems({"None", "RTSCTS", "XONXOFF"});
+        cat_handshake_combo_->setCurrentText(QString::fromLatin1(config.cat_handshake));
+        cat_grid->addWidget(cat_handshake_combo_, row, 1);
+
+        cat_layout->addLayout(cat_grid);
+
+        auto *cat_buttons = new QHBoxLayout();
+        cat_connect_button_ = new QPushButton("Connect", cat_group_);
+        cat_disconnect_button_ = new QPushButton("Disconnect", cat_group_);
+        cat_buttons->addWidget(cat_connect_button_);
+        cat_buttons->addWidget(cat_disconnect_button_);
+        cat_layout->addLayout(cat_buttons);
+
+        cat_status_frame_ = new QFrame(cat_group_);
+        auto *cat_status_layout = new QHBoxLayout(cat_status_frame_);
+        cat_status_layout->setContentsMargins(6, 4, 6, 4);
+        cat_status_label_ = new QLabel("CAT status: idle", cat_status_frame_);
+        cat_status_layout->addWidget(cat_status_label_);
+        cat_layout->addWidget(cat_status_frame_);
+        cat_layout->addStretch(1);
+
+        connect(cat_connect_button_, &QPushButton::clicked, this,
+          [this]() { on_cat_connect(); });
+        connect(cat_disconnect_button_, &QPushButton::clicked, this,
+          [this]() { on_cat_disconnect(); });
+
+        populate_cat_rigs();
+        cat_group_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+
+        auto *cluster_cat_row = new QWidget(central);
+        auto *cluster_cat_layout = new QHBoxLayout(cluster_cat_row);
+        cluster_cat_layout->setContentsMargins(0, 0, 0, 0);
+        cluster_cat_layout->setSpacing(6);
+        cluster_cat_layout->addWidget(cluster_group_, 2);
+        cluster_cat_layout->addWidget(cat_group_, 1);
+        left_layout->addWidget(cluster_cat_row, 1);
 
     root->addWidget(left_column, 1);
 
@@ -253,9 +386,15 @@ public:
     timer_->start(120);
 
     refresh_ui();
+    setFocus(Qt::ActiveWindowFocusReason);
   }
 
 protected:
+  void showEvent(QShowEvent *event) override {
+    QMainWindow::showEvent(event);
+    setFocus(Qt::ActiveWindowFocusReason);
+  }
+
   /*
    * Recompute the character-cell layout after a window resize.
    *
@@ -488,6 +627,10 @@ private:
       "QGroupBox#clusterGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
       " color: #f4f8ff; background: #0f5ea4; }"
       "QCheckBox { color: #0d2d3b; font-weight: bold; }");
+    cat_group_->setStyleSheet(
+      "QGroupBox#catGroup::title { subcontrol-origin: margin; left: 10px; padding: 0 6px;"
+      " color: #f4f8ff; background: #0f5ea4; }"
+      "QLabel { color: #0d2d3b; font-weight: bold; }");
   }
 
   int cols_to_px(int cols, int padding = 10) const {
@@ -531,12 +674,13 @@ private:
     cluster_table_->verticalHeader()->setDefaultSectionSize(row_h);
     cluster_table_->horizontalHeader()->setFixedHeight(header_h);
 
-    const int log_col_chars[8] = {3, 9, 5, 15, 6, 5, 5, 4};
-    for (int i = 0; i < 8; i++) {
-      if (i == 3)
+    const int log_col_chars[9] = {3, 9, 5, 15, 6, 5, 5, 8, 22};
+    for (int i = 0; i < 9; i++) {
+      if (i == 3 || i == 8)
         continue;
       log_table_->setColumnWidth(i, cols_to_px(log_col_chars[i]));
     }
+    log_table_->horizontalHeader()->setSectionResizeMode(8, QHeaderView::Stretch);
 
     const int cluster_col_chars[4] = {9, 11, 13, 20};
     cluster_table_->setColumnWidth(0, cols_to_px(cluster_col_chars[0]));
@@ -592,7 +736,7 @@ private:
 
       auto set_item = [&](int col, const QString &text) {
         auto *cell = new QTableWidgetItem(text);
-          const int hard_cols[8] = {3, 8, 4, 14, 5, 4, 4, 3};
+          const int hard_cols[9] = {3, 8, 4, 14, 5, 4, 4, 7, 40};
           cell->setText(clip_to_cols(cell->text(), hard_cols[col]));
           cell->setTextAlignment(Qt::AlignCenter | Qt::AlignVCenter);
 
@@ -610,7 +754,8 @@ private:
       set_item(4, QString::number(q.freq));
       set_item(5, q.band);
       set_item(6, q.mode);
-      set_item(7, q.rst);
+      set_item(7, render_rst_sr(q));
+      set_item(8, q.comments);
     }
 
     log_table_->scrollToBottom();
@@ -746,6 +891,79 @@ private:
     }
   }
 
+  void populate_cat_rigs() {
+    cat_rig_combo_->clear();
+
+    CatRigInfo rigs[256];
+    const int count = cat_list_rigs(rigs, 256);
+    if (count <= 0) {
+      cat_rig_combo_->addItem("No rigs available", 0);
+      return;
+    }
+
+    int selected_index = 0;
+    for (int i = 0; i < count; i++) {
+      cat_rig_combo_->addItem(QString::fromLatin1(rigs[i].model_name), rigs[i].model);
+      if (rigs[i].model == config.cat_model)
+        selected_index = i;
+    }
+
+    cat_rig_combo_->setCurrentIndex(selected_index);
+  }
+
+  void refresh_cat_status() {
+    char status[128] = {0};
+    cat_get_status(status, sizeof(status));
+
+    const bool connected = cat_is_connected() != 0;
+    cat_status_label_->setText(QString("CAT status: %1").arg(QString::fromLatin1(status)));
+    cat_status_frame_->setStyleSheet(connected
+                                         ? "QFrame { background: #87d37c; border: 1px solid #0e6a85; }"
+                                         : "QFrame { background: #f3d24f; border: 1px solid #0e6a85; }");
+  }
+
+  void on_cat_connect() {
+    CatConnectionParams params;
+    std::memset(&params, 0, sizeof(params));
+
+    params.model = cat_rig_combo_->currentData().toInt();
+    std::snprintf(params.device, sizeof(params.device), "%s",
+                  cat_device_edit_->text().trimmed().toLatin1().constData());
+    params.baud_rate = cat_baud_combo_->currentText().toInt();
+    params.data_bits = cat_data_bits_combo_->currentText().toInt();
+    params.stop_bits = cat_stop_bits_combo_->currentText().toInt();
+    std::snprintf(params.parity, sizeof(params.parity), "%s",
+                  cat_parity_combo_->currentText().trimmed().toLatin1().constData());
+    std::snprintf(params.handshake, sizeof(params.handshake), "%s",
+                  cat_handshake_combo_->currentText().trimmed().toLatin1().constData());
+
+    if (params.model <= 0) {
+      QMessageBox::warning(this, "CAT", "Choose a valid rig model first.");
+      return;
+    }
+
+    config.cat_model = params.model;
+    std::snprintf(config.cat_device, sizeof(config.cat_device), "%s", params.device);
+    config.cat_baud = params.baud_rate;
+    config.cat_data_bits = params.data_bits;
+    config.cat_stop_bits = params.stop_bits;
+    std::snprintf(config.cat_parity, sizeof(config.cat_parity), "%s", params.parity);
+    std::snprintf(config.cat_handshake, sizeof(config.cat_handshake), "%s", params.handshake);
+
+    if (cat_connect(&params) != 0) {
+      refresh_cat_status();
+      QMessageBox::warning(this, "CAT", "CAT connection failed. Check status bar and parameters.");
+      return;
+    }
+
+    refresh_cat_status();
+  }
+
+  void on_cat_disconnect() {
+    cat_disconnect();
+    refresh_cat_status();
+  }
+
   /*
    * Pull the latest controller state into the Qt widgets.
    *
@@ -754,15 +972,32 @@ private:
   void refresh_ui() {
     AppRenderState state;
     app_controller_get_render_state(&state);
+    const int active_freq_khz = app_controller_get_active_frequency_khz();
+    log_group_->setTitle(QString("QSO Log [%1 kHz]").arg(active_freq_khz));
 
-    const int input_cols = panel_available_cols(input_panel_, 26 + cols_to_px(15));
+    const int input_call_cols = std::max(1, input_call_edit_->width() / std::max(1, cell_w_) - 2);
+    const int input_rst_cols = std::max(1, input_rst_edit_->width() / std::max(1, cell_w_) - 2);
+    const int input_comments_cols = std::max(1, input_comments_edit_->width() / std::max(1, cell_w_) - 2);
     const int status_cols = panel_available_cols(status_panel_, 16) / 2;
     const int info_cols = panel_available_cols(status_panel_, 16) / 2;
     const int dxcc_cols = panel_available_cols(dxcc_panel_, 16);
     const int stats_cols = panel_available_cols(stats_panel_, 16);
     const int func_cols = panel_available_cols(function_panel_, 16);
 
-    input_edit_->setText(clip_cstr_to_cols(state.input, input_cols));
+    input_call_edit_->setText(clip_cstr_to_cols(state.input_call, input_call_cols));
+    input_rst_edit_->setText(clip_cstr_to_cols(state.input_rst, input_rst_cols));
+    input_comments_edit_->setText(
+      clip_cstr_to_cols(state.input_comments, input_comments_cols));
+
+    input_call_edit_->setStyleSheet(state.active_input_field == 0
+                      ? "QLineEdit { background: #f3d24f; border: 1px solid #0e6a85; color: #111; }"
+                      : "QLineEdit { background: #9be2ef; border: 1px solid #0e6a85; color: #0d2d3b; }");
+    input_rst_edit_->setStyleSheet(state.active_input_field == 1
+                       ? "QLineEdit { background: #f3d24f; border: 1px solid #0e6a85; color: #111; }"
+                       : "QLineEdit { background: #9be2ef; border: 1px solid #0e6a85; color: #0d2d3b; }");
+    input_comments_edit_->setStyleSheet(state.active_input_field == 2
+                        ? "QLineEdit { background: #f3d24f; border: 1px solid #0e6a85; color: #111; }"
+                        : "QLineEdit { background: #9be2ef; border: 1px solid #0e6a85; color: #0d2d3b; }");
     status_label_->setText(clip_to_cols(
       QString("Status: %1").arg(state.status ? state.status : ""),
       std::max(1, status_cols)));
@@ -803,6 +1038,7 @@ private:
     refresh_log_table();
     refresh_cluster_table(false, 0);
     refresh_suggestions();
+    refresh_cat_status();
 
     log_group_->setVisible(true);
     input_panel_->setVisible(true);
@@ -823,8 +1059,12 @@ private:
   QListWidget *suggestions_list_ = nullptr;
 
   QFrame *input_panel_ = nullptr;
-  QLabel *input_label_ = nullptr;
-  QLineEdit *input_edit_ = nullptr;
+  QLabel *input_call_label_ = nullptr;
+  QLineEdit *input_call_edit_ = nullptr;
+  QLabel *input_rst_label_ = nullptr;
+  QLineEdit *input_rst_edit_ = nullptr;
+  QLabel *input_comments_label_ = nullptr;
+  QLineEdit *input_comments_edit_ = nullptr;
 
   QFrame *status_panel_ = nullptr;
   QLabel *status_label_ = nullptr;
@@ -842,6 +1082,19 @@ private:
   QTableWidget *cluster_table_ = nullptr;
   QLineEdit *cluster_search_edit_ = nullptr;
   std::array<QCheckBox *, kBandLabels.size()> cluster_band_checks_{};
+
+  QGroupBox *cat_group_ = nullptr;
+  QComboBox *cat_rig_combo_ = nullptr;
+  QLineEdit *cat_device_edit_ = nullptr;
+  QComboBox *cat_baud_combo_ = nullptr;
+  QComboBox *cat_data_bits_combo_ = nullptr;
+  QComboBox *cat_stop_bits_combo_ = nullptr;
+  QComboBox *cat_parity_combo_ = nullptr;
+  QComboBox *cat_handshake_combo_ = nullptr;
+  QPushButton *cat_connect_button_ = nullptr;
+  QPushButton *cat_disconnect_button_ = nullptr;
+  QFrame *cat_status_frame_ = nullptr;
+  QLabel *cat_status_label_ = nullptr;
 
   QFrame *function_panel_ = nullptr;
   QLabel *function_label_ = nullptr;
@@ -883,11 +1136,14 @@ int main(int argc, char **argv) {
                          "DXCluster startup failed. The app will continue without it.");
   }
 
+  cat_init();
+
   LoggerQtWindow window;
   window.show();
 
   const int rc = app.exec();
 
+  cat_shutdown();
   app_controller_shutdown();
   return rc;
 }

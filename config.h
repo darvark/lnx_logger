@@ -13,6 +13,14 @@ typedef struct {
   int dxc_port;
   char dxc_call[32];
 
+  int cat_model;
+  char cat_device[128];
+  int cat_baud;
+  int cat_data_bits;
+  int cat_stop_bits;
+  char cat_parity[16];
+  char cat_handshake[16];
+
 } Config;
 
 extern Config config;

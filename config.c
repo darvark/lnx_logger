@@ -43,6 +43,14 @@ static void set_defaults(void) {
   config.dxc_port = 7000;
 
   strcpy(config.dxc_call, "N0CALL");
+
+  config.cat_model = 2;
+  strcpy(config.cat_device, "/dev/ttyUSB0");
+  config.cat_baud = 9600;
+  config.cat_data_bits = 8;
+  config.cat_stop_bits = 1;
+  strcpy(config.cat_parity, "None");
+  strcpy(config.cat_handshake, "None");
 }
 
 /*
@@ -101,6 +109,26 @@ int config_load(const char *filename) {
       strncpy(config.dxc_call, value, sizeof(config.dxc_call));
 
       config.dxc_call[sizeof(config.dxc_call) - 1] = 0;
+    } else if (strcmp(key, "CAT_MODEL") == 0) {
+      config.cat_model = atoi(value);
+    } else if (strcmp(key, "CAT_DEVICE") == 0) {
+      strncpy(config.cat_device, value, sizeof(config.cat_device));
+
+      config.cat_device[sizeof(config.cat_device) - 1] = 0;
+    } else if (strcmp(key, "CAT_BAUD") == 0) {
+      config.cat_baud = atoi(value);
+    } else if (strcmp(key, "CAT_DATA_BITS") == 0) {
+      config.cat_data_bits = atoi(value);
+    } else if (strcmp(key, "CAT_STOP_BITS") == 0) {
+      config.cat_stop_bits = atoi(value);
+    } else if (strcmp(key, "CAT_PARITY") == 0) {
+      strncpy(config.cat_parity, value, sizeof(config.cat_parity));
+
+      config.cat_parity[sizeof(config.cat_parity) - 1] = 0;
+    } else if (strcmp(key, "CAT_HANDSHAKE") == 0) {
+      strncpy(config.cat_handshake, value, sizeof(config.cat_handshake));
+
+      config.cat_handshake[sizeof(config.cat_handshake) - 1] = 0;
     }
   }
 

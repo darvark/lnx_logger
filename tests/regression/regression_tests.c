@@ -237,7 +237,7 @@ static void test_export_outputs(const char *tmp_dir) {
   expect_true(adi != NULL, "ADIF file should be readable");
 
   if (csv) {
-    expect_true(strstr(csv, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COUNTRY") != NULL,
+    expect_true(strstr(csv, "DATE,UTC,CALL,FREQ,BAND,MODE,RST,COMMENTS,COUNTRY") != NULL,
                 "CSV header exists");
     expect_true(strstr(csv, "SP9ABC") != NULL, "CSV contains first call");
     expect_true(strstr(csv, "K1ABC") != NULL, "CSV contains second call");
