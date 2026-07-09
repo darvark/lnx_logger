@@ -117,7 +117,8 @@ static void test_config_loading(const char *tmp_dir) {
       "LOCATOR = JO92AA\n"
       "DXC_HOST = dx.example.net\n"
       "DXC_PORT = 9000\n"
-      "DXC_CALL = SP9XYZ\n";
+      "DXC_CALL = SP9XYZ\n"
+      "CAT_MODE_FROM_RIG = 1\n";
 
   expect_int_eq(write_text_file(conf_path, conf_text), 0,
                 "write test logger.conf");
@@ -129,6 +130,8 @@ static void test_config_loading(const char *tmp_dir) {
   expect_str_eq(config.dxc_host, "dx.example.net", "config host parsed");
   expect_int_eq(config.dxc_port, 9000, "config port parsed");
   expect_str_eq(config.dxc_call, "SP9XYZ", "config call parsed");
+  expect_int_eq(config.cat_mode_from_rig, 1,
+                "config CAT mode-from-rig parsed");
 
   expect_int_eq(config_load("/definitely/missing/logger.conf"), -1,
                 "missing config should return -1");
@@ -136,6 +139,8 @@ static void test_config_loading(const char *tmp_dir) {
                 "defaults restored when config file is missing");
   expect_int_eq(config.dxc_port, 7000,
                 "default port restored when config file is missing");
+  expect_int_eq(config.cat_mode_from_rig, 0,
+                "default CAT mode-from-rig restored when config file is missing");
 }
 
 static void test_cty_loading_and_lookup(const char *tmp_dir) {

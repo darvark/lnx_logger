@@ -20,6 +20,7 @@ typedef struct {
   int cat_stop_bits;
   char cat_parity[16];
   char cat_handshake[16];
+  int cat_mode_from_rig;
 
 } Config;
 

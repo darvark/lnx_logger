@@ -55,13 +55,15 @@ int qso_add(const char *line, char *status, size_t status_size);
  * @param call Callsign field.
  * @param freq_khz Frequency in kHz.
  * @param rst Signal report field.
+ * @param mode Optional mode label. If empty, the mode is derived from frequency.
  * @param comments Free-form comments field.
  * @param status Destination buffer for a status message.
  * @param status_size Size of the status buffer in bytes.
  * @return Index of the inserted QSO, or -1 on failure.
  */
 int qso_add_fields(const char *call, int freq_khz, const char *rst,
-                   const char *comments, char *status, size_t status_size);
+                   const char *mode, const char *comments, char *status,
+                   size_t status_size);
 
 /*
  * Toggle the invalid flag for a QSO row.

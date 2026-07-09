@@ -51,6 +51,7 @@ static void set_defaults(void) {
   config.cat_stop_bits = 1;
   strcpy(config.cat_parity, "None");
   strcpy(config.cat_handshake, "None");
+  config.cat_mode_from_rig = 0;
 }
 
 /*
@@ -129,6 +130,8 @@ int config_load(const char *filename) {
       strncpy(config.cat_handshake, value, sizeof(config.cat_handshake));
 
       config.cat_handshake[sizeof(config.cat_handshake) - 1] = 0;
+    } else if (strcmp(key, "CAT_MODE_FROM_RIG") == 0) {
+      config.cat_mode_from_rig = atoi(value) ? 1 : 0;
     }
   }
 

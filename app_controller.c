@@ -387,6 +387,20 @@ static int resolve_qso_frequency_khz(void) {
   return manual_entry_freq_khz;
 }
 
+static const char *resolve_qso_mode(char *mode_out, size_t mode_out_size) {
+  if (!mode_out || mode_out_size < 2)
+    return NULL;
+
+  mode_out[0] = 0;
+
+  if (cat_is_connected() && config.cat_mode_from_rig &&
+      cat_get_mode_label(mode_out, mode_out_size) == 0 && mode_out[0]) {
+    return mode_out;
+  }
+
+  return NULL;
+}
+
 int app_controller_get_active_frequency_khz(void) {
   return resolve_qso_frequency_khz();
 }
@@ -1131,8 +1145,10 @@ AppControllerEvent app_controller_handle_key(int key) {
           call_history_record_from_input(command_line);
         } else if (entry_call[0] && entry_rst[0]) {
           const int qso_freq_khz = resolve_qso_frequency_khz();
+          char qso_mode[16] = {0};
+          const char *mode = resolve_qso_mode(qso_mode, sizeof(qso_mode));
           int idx = qso_add_fields(entry_call, qso_freq_khz, entry_rst,
-                                   entry_comments, status_text,
+                                   mode, entry_comments, status_text,
                                    sizeof(status_text));
           if (apply_saved_qso_state(idx)) {
             call_history_record_from_input(entry_call);

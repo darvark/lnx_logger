@@ -76,6 +76,15 @@ int cat_is_connected(void);
 int cat_get_frequency_khz(int *out_khz);
 
 /*
+ * Read the current rig mode and map it to a logger mode label.
+ *
+ * @param out Destination buffer for the mode label.
+ * @param out_size Destination buffer size.
+ * @return 0 on success, or -1 on failure.
+ */
+int cat_get_mode_label(char *out, size_t out_size);
+
+/*
  * Set rig frequency from a value in kHz.
  *
  * @param freq_khz Frequency in kHz.

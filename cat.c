@@ -42,6 +42,25 @@ static void cat_set_status_fmt(const char *prefix, int rc) {
   cat_set_status(text);
 }
 
+static void cat_map_mode_label(const char *hamlib_mode, char *out,
+                               size_t out_size) {
+  if (!hamlib_mode || !out || out_size < 2)
+    return;
+
+  if (strstr(hamlib_mode, "CW")) {
+    snprintf(out, out_size, "%s", "CW");
+  } else if (strstr(hamlib_mode, "USB") || strstr(hamlib_mode, "LSB") ||
+             strcmp(hamlib_mode, "SSB") == 0 || strstr(hamlib_mode, "AM") ||
+             strstr(hamlib_mode, "FM")) {
+    snprintf(out, out_size, "%s", "SSB");
+  } else if (strstr(hamlib_mode, "RTTY") || strstr(hamlib_mode, "PKT") ||
+             strstr(hamlib_mode, "DATA") || strstr(hamlib_mode, "PSK")) {
+    snprintf(out, out_size, "%s", "RTTY");
+  } else {
+    snprintf(out, out_size, "%s", hamlib_mode);
+  }
+}
+
 static void cat_apply_conf(RIG *rig, const char *name, const char *value) {
   if (!rig || !name || !value || !value[0])
     return;
@@ -230,6 +249,39 @@ int cat_get_frequency_khz(int *out_khz) {
   *out_khz = (int)((freq_hz + 500.0) / 1000.0);
   return 0;
 #else
+  return -1;
+#endif
+}
+
+int cat_get_mode_label(char *out, size_t out_size) {
+  if (!out || out_size < 2)
+    return -1;
+
+#ifdef HAVE_HAMLIB
+  pthread_mutex_lock(&cat_mutex);
+
+  if (!active_rig) {
+    pthread_mutex_unlock(&cat_mutex);
+    return -1;
+  }
+
+  rmode_t mode = 0;
+  pbwidth_t width = 0;
+  const int rc = rig_get_mode(active_rig, RIG_VFO_CURR, &mode, &width);
+  pthread_mutex_unlock(&cat_mutex);
+
+  if (rc != RIG_OK) {
+    cat_set_status_fmt("CAT read mode failed", rc);
+    return -1;
+  }
+
+  char mode_text[32] = {0};
+  snprintf(mode_text, sizeof(mode_text), "%s", rig_strrmode(mode));
+  cat_map_mode_label(mode_text, out, out_size);
+  return 0;
+#else
+  (void)out;
+  (void)out_size;
   return -1;
 #endif
 }

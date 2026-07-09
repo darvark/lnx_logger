@@ -328,6 +328,12 @@ public:
         cat_handshake_combo_->addItems({"None", "RTSCTS", "XONXOFF"});
         cat_handshake_combo_->setCurrentText(QString::fromLatin1(config.cat_handshake));
         cat_grid->addWidget(cat_handshake_combo_, row, 1);
+        row++;
+
+        cat_grid->addWidget(new QLabel("Mode from rig:", cat_group_), row, 0);
+        cat_mode_from_rig_check_ = new QCheckBox(cat_group_);
+        cat_mode_from_rig_check_->setChecked(config.cat_mode_from_rig != 0);
+        cat_grid->addWidget(cat_mode_from_rig_check_, row, 1);
 
         cat_layout->addLayout(cat_grid);
 
@@ -943,6 +949,7 @@ private:
     config.cat_stop_bits = params.stop_bits;
     std::snprintf(config.cat_parity, sizeof(config.cat_parity), "%s", params.parity);
     std::snprintf(config.cat_handshake, sizeof(config.cat_handshake), "%s", params.handshake);
+    config.cat_mode_from_rig = cat_mode_from_rig_check_->isChecked() ? 1 : 0;
 
     if (cat_connect(&params) != 0) {
       refresh_cat_status();
@@ -1085,6 +1092,7 @@ private:
   QComboBox *cat_stop_bits_combo_ = nullptr;
   QComboBox *cat_parity_combo_ = nullptr;
   QComboBox *cat_handshake_combo_ = nullptr;
+  QCheckBox *cat_mode_from_rig_check_ = nullptr;
   QPushButton *cat_connect_button_ = nullptr;
   QPushButton *cat_disconnect_button_ = nullptr;
   QFrame *cat_status_frame_ = nullptr;

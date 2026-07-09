@@ -297,7 +297,8 @@ int qso_add(const char *line, char *status, size_t status_size) {
  * @return Index of the inserted QSO, or -1 on failure.
  */
 int qso_add_fields(const char *call, int freq_khz, const char *rst,
-                   const char *comments, char *status, size_t status_size) {
+                   const char *mode, const char *comments, char *status,
+                   size_t status_size) {
   if (!call || !rst) {
     if (status && status_size)
       snprintf(status, status_size, "Bad format");
@@ -344,7 +345,11 @@ int qso_add_fields(const char *call, int freq_khz, const char *rst,
   q.freq = freq_khz;
 
   detect_band(q.freq, q.band);
-  detect_mode(q.freq, q.mode);
+  if (mode && mode[0]) {
+    snprintf(q.mode, sizeof(q.mode), "%s", mode);
+  } else {
+    detect_mode(q.freq, q.mode);
+  }
 
   fill_utc(&q);
 

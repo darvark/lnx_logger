@@ -132,6 +132,7 @@ Maidenhead --> ExternalData
 
 - Split QSO entry with call/rst/comments and Space-based field cycling
 - CAT-aware frequency handling (live rig frequency when connected, manual fallback)
+- Optional CAT-aware mode handling from the rig's current operating mode
 - Callsign history suggestions with multi-match list view (top-right panel)
 - Local DXCC lookup from a CTY database
 - DXCluster status and spot display, with a stop-safe shutdown path
