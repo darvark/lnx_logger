@@ -34,4 +34,12 @@ extern Config config;
  */
 int config_load(const char *filename);
 
+/*
+ * Persist the current global config structure to a logger.conf-style file.
+ *
+ * @param filename Path to the destination configuration file.
+ * @return 0 on success, or -1 if the file cannot be written.
+ */
+int config_save(const char *filename);
+
 #endif

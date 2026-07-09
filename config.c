@@ -139,3 +139,38 @@ int config_load(const char *filename) {
 
   return 0;
 }
+
+/*
+ * Save configuration values to a logger.conf-style file.
+ *
+ * @param filename Path to the configuration file.
+ * @return 0 on success, or -1 if the file cannot be opened for writing.
+ */
+int config_save(const char *filename) {
+  if (!filename || !filename[0])
+    return -1;
+
+  FILE *f = fopen(filename, "w");
+  if (!f)
+    return -1;
+
+  fprintf(f, "LAT=%.6f\n", config.lat);
+  fprintf(f, "LON=%.6f\n", config.lon);
+  fprintf(f, "LOCATOR=%s\n", config.locator);
+  fprintf(f, "\n");
+  fprintf(f, "DXC_HOST=%s\n", config.dxc_host);
+  fprintf(f, "DXC_PORT=%d\n", config.dxc_port);
+  fprintf(f, "DXC_CALL=%s\n", config.dxc_call);
+  fprintf(f, "\n");
+  fprintf(f, "CAT_MODEL=%d\n", config.cat_model);
+  fprintf(f, "CAT_DEVICE=%s\n", config.cat_device);
+  fprintf(f, "CAT_BAUD=%d\n", config.cat_baud);
+  fprintf(f, "CAT_DATA_BITS=%d\n", config.cat_data_bits);
+  fprintf(f, "CAT_STOP_BITS=%d\n", config.cat_stop_bits);
+  fprintf(f, "CAT_PARITY=%s\n", config.cat_parity);
+  fprintf(f, "CAT_HANDSHAKE=%s\n", config.cat_handshake);
+  fprintf(f, "CAT_MODE_FROM_RIG=%d\n", config.cat_mode_from_rig ? 1 : 0);
+
+  fclose(f);
+  return 0;
+}

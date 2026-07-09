@@ -143,6 +143,44 @@ static void test_config_loading(const char *tmp_dir) {
                 "default CAT mode-from-rig restored when config file is missing");
 }
 
+static void test_config_save_roundtrip(const char *tmp_dir) {
+  char conf_path[512];
+  snprintf(conf_path, sizeof(conf_path), "%s/logger_saved.conf", tmp_dir);
+
+  config.cat_model = 2345;
+  snprintf(config.cat_device, sizeof(config.cat_device), "%s", "/dev/ttyS8");
+  config.cat_baud = 19200;
+  config.cat_data_bits = 8;
+  config.cat_stop_bits = 1;
+  snprintf(config.cat_parity, sizeof(config.cat_parity), "%s", "Odd");
+  snprintf(config.cat_handshake, sizeof(config.cat_handshake), "%s", "XONXOFF");
+  config.cat_mode_from_rig = 1;
+
+  expect_int_eq(config_save(conf_path), 0, "config_save should succeed");
+
+  config.cat_model = 0;
+  config.cat_device[0] = 0;
+  config.cat_baud = 0;
+  config.cat_data_bits = 0;
+  config.cat_stop_bits = 0;
+  config.cat_parity[0] = 0;
+  config.cat_handshake[0] = 0;
+  config.cat_mode_from_rig = 0;
+
+  expect_int_eq(config_load(conf_path), 0,
+                "config_load should read saved config");
+  expect_int_eq(config.cat_model, 2345, "saved CAT model restored");
+  expect_str_eq(config.cat_device, "/dev/ttyS8", "saved CAT device restored");
+  expect_int_eq(config.cat_baud, 19200, "saved CAT baud restored");
+  expect_int_eq(config.cat_data_bits, 8, "saved CAT data bits restored");
+  expect_int_eq(config.cat_stop_bits, 1, "saved CAT stop bits restored");
+  expect_str_eq(config.cat_parity, "Odd", "saved CAT parity restored");
+  expect_str_eq(config.cat_handshake, "XONXOFF",
+                "saved CAT handshake restored");
+  expect_int_eq(config.cat_mode_from_rig, 1,
+                "saved CAT mode-from-rig restored");
+}
+
 static void test_cty_loading_and_lookup(const char *tmp_dir) {
   char cty_path[512];
   snprintf(cty_path, sizeof(cty_path), "%s/wl_cty.dat", tmp_dir);
@@ -336,6 +374,7 @@ int main(void) {
   setenv("LOGGER_DB_PATH", db_path, 1);
 
   test_config_loading(tmp_dir);
+  test_config_save_roundtrip(tmp_dir);
   test_cty_loading_and_lookup(tmp_dir);
   test_qso_and_stats_logic();
   test_export_outputs(tmp_dir);

@@ -951,6 +951,11 @@ private:
     std::snprintf(config.cat_handshake, sizeof(config.cat_handshake), "%s", params.handshake);
     config.cat_mode_from_rig = cat_mode_from_rig_check_->isChecked() ? 1 : 0;
 
+    if (config_save("logger.conf") != 0) {
+      QMessageBox::warning(this, "CAT",
+                           "Failed to save logger.conf. CAT settings will not persist.");
+    }
+
     if (cat_connect(&params) != 0) {
       refresh_cat_status();
       QMessageBox::warning(this, "CAT", "CAT connection failed. Check status bar and parameters.");
